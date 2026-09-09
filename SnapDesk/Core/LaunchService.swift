@@ -22,7 +22,7 @@ struct LaunchConfiguration: Equatable, Sendable {
 }
 
 @MainActor
-protocol ApplicationLaunching {
+protocol ApplicationLaunching: Sendable {
     func urlForApplication(bundleIdentifier: String) -> URL?
     func applicationExists(at path: String) -> Bool
     func openApplication(at url: URL, configuration: LaunchConfiguration) async throws
@@ -169,7 +169,7 @@ final class LaunchService {
                     activates: false
                 )
                 do {
-                    try await launcher.openApplication(at: url, configuration: configuration)
+                    try await open(at: url, configuration: configuration)
                 } catch {
                     fail(&progress, index: index, reason: "Launch failed", onProgress: onProgress)
                     continue
@@ -218,6 +218,22 @@ final class LaunchService {
         return progress
     }
 
+    private func open(at url: URL, configuration: LaunchConfiguration) async throws {
+        let timeout = launchTimeout
+        let launcher = launcher
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await launcher.openApplication(at: url, configuration: configuration)
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw LaunchTimeoutError()
+            }
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+
     private func resolveWindow(for slot: SavedWindow, claimed: Set<String>) async -> MatchableWindow? {
         let waited = await windows.waitForWindow(
             bundleIdentifier: slot.bundleIdentifier,
@@ -263,6 +279,8 @@ final class LaunchService {
         }
     }
 }
+
+private struct LaunchTimeoutError: Error {}
 
 @MainActor
 struct NSWorkspaceLauncher: ApplicationLaunching {

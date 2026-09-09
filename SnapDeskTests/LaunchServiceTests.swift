@@ -148,6 +148,42 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertTrue(launcher.opens.isEmpty)
     }
 
+    func testLaunchTimeoutFailsSlotAndContinues() async {
+        let launcher = FakeLauncher()
+        let previewURL = URL(fileURLWithPath: previewPath)
+        launcher.urls = [
+            safariID: URL(fileURLWithPath: safariPath),
+            previewID: previewURL,
+        ]
+        launcher.hangURLs = [previewURL]
+        let apps = FakeApps()
+        let windows = FakeWindows(windowsByBundle: [
+            safariID: [safariWindow],
+            previewID: [previewWindow],
+        ])
+        let placer = FakePlacer()
+        let service = makeService(
+            launcher: launcher,
+            apps: apps,
+            windows: windows,
+            placer: placer,
+            launchTimeout: .milliseconds(50)
+        )
+
+        let result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
+
+        XCTAssertEqual(
+            result,
+            [
+                SlotProgress(index: 0, name: "Safari", status: .placed),
+                SlotProgress(index: 1, name: "Preview", status: .failed("Launch failed")),
+            ]
+        )
+        XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: safariPath)])
+        XCTAssertEqual(placer.placements.map(\.window.id), [safariWindow.id])
+        XCTAssertEqual(apps.activated, [safariID])
+    }
+
     func testEmptyDocumentReturnsEmptyWithoutLaunching() async {
         let launcher = FakeLauncher()
         let windows = FakeWindows()
@@ -183,7 +219,8 @@ final class LaunchServiceTests: XCTestCase {
         launcher: FakeLauncher,
         apps: FakeApps = FakeApps(),
         windows: FakeWindows,
-        placer: FakePlacer = FakePlacer()
+        placer: FakePlacer = FakePlacer(),
+        launchTimeout: Duration = .seconds(10)
     ) -> LaunchService {
         LaunchService(
             launcher: launcher,
@@ -191,7 +228,8 @@ final class LaunchServiceTests: XCTestCase {
             windows: windows,
             placer: placer,
             displays: FakeLaunchDisplays(live: [display]),
-            clock: FakeClock()
+            clock: FakeClock(),
+            launchTimeout: launchTimeout
         )
     }
 
@@ -267,6 +305,7 @@ final class LaunchServiceTests: XCTestCase {
 private final class FakeLauncher: ApplicationLaunching {
     var urls: [String: URL] = [:]
     var existingPaths: Set<String> = []
+    var hangURLs: Set<URL> = []
     var opens: [(url: URL, configuration: LaunchConfiguration)] = []
     var openError: (any Error)?
 
@@ -279,6 +318,9 @@ private final class FakeLauncher: ApplicationLaunching {
     }
 
     func openApplication(at url: URL, configuration: LaunchConfiguration) async throws {
+        if hangURLs.contains(url) {
+            try await Task.sleep(for: .seconds(60))
+        }
         if let openError { throw openError }
         opens.append((url, configuration))
     }
