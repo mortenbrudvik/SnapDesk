@@ -50,6 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     private let launchService = LaunchService()
     private var statusItem: StatusItemController?
     private var hotkeys: HotkeyCenter?
+    private lazy var launchHUD: LaunchHUDController = {
+        let hud = LaunchHUDController()
+        hud.onCancel = { [weak self] in
+            self?.launchService.cancel()
+        }
+        return hud
+    }()
 
     /// Capture passes a new unsaved document; Editor passes nil.
     var editorOpener: (WorkspaceDocument?) -> Void = { _ in }
@@ -127,9 +134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     }
 
     private func startLaunch(_ document: WorkspaceDocument) {
+        launchHUD.present(title: document.name)
         Task { [weak self] in
             guard let self else { return }
             _ = await self.launchService.launch(document) { [weak self] progress in
+                self?.launchHUD.update(progress)
                 self?.hudPresenter(progress)
             }
         }
