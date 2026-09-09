@@ -30,9 +30,11 @@
 		A97A788B0CB8775E9F848F41 /* WorkspaceDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DC0F0FEA8E928214B0F80 /* WorkspaceDocument.swift */; };
 		AE4110488393F7E3806EE252 /* FramePlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399E6704F533FFAE205B130E /* FramePlacementTests.swift */; };
 		B6FF1D32162ACEAA8391EE6D /* CaptureFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */; };
+		BA3F204DE701B2055BD18B21 /* LaunchPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */; };
 		D6210A8B16110C59FFA2BC42 /* DisplayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */; };
 		D8223C8C01B548C04C553F03 /* WindowMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4582005BA218583F382BBB25 /* WindowMatcherTests.swift */; };
 		DDA986D571159EEE48DBEAE5 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74D594D110A201FEEDDE208C /* ApplicationServices.framework */; };
+		DF40DD2C79A057C5882631FA /* LaunchPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */; };
 		E3CFA5C2101BED58222DAFD8 /* CaptureOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52CECF12D85689F86F7B381E /* CaptureOrderingTests.swift */; };
 		F0852E0EE76E76ED797B5A28 /* ScreenGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */; };
 		F2FAF7D0AE785F372C156BCE /* CaptureOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */; };
@@ -62,6 +64,7 @@
 		4411FDDC99F3CED1C88994DA /* CaptureFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFilterTests.swift; sourceTree = "<group>"; };
 		4582005BA218583F382BBB25 /* WindowMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMatcherTests.swift; sourceTree = "<group>"; };
 		52CECF12D85689F86F7B381E /* CaptureOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrderingTests.swift; sourceTree = "<group>"; };
+		5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchPlanner.swift; sourceTree = "<group>"; };
 		651FFE574E16AAA229BFCDF8 /* ArgumentTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgumentTokenizer.swift; sourceTree = "<group>"; };
 		74D594D110A201FEEDDE208C /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
 		7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePlacement.swift; sourceTree = "<group>"; };
@@ -78,6 +81,7 @@
 		DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnapDeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFilter.swift; sourceTree = "<group>"; };
 		E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayMap.swift; sourceTree = "<group>"; };
+		E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchPlannerTests.swift; sourceTree = "<group>"; };
 		F23DC0F0FEA8E928214B0F80 /* WorkspaceDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDocument.swift; sourceTree = "<group>"; };
 		F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleTests.swift; sourceTree = "<group>"; };
@@ -106,6 +110,7 @@
 				52CECF12D85689F86F7B381E /* CaptureOrderingTests.swift */,
 				394A892C76175ABBFED05D4B /* DisplayMapTests.swift */,
 				399E6704F533FFAE205B130E /* FramePlacementTests.swift */,
+				E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */,
 				353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */,
 				803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */,
 				4582005BA218583F382BBB25 /* WindowMatcherTests.swift */,
@@ -153,6 +158,7 @@
 				8FDDEBA8B1D33AE992426D8C /* Display.swift */,
 				E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */,
 				7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */,
+				5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */,
 				843C29ADBF07D3821B29F8D3 /* LiveDisplay.swift */,
 				23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */,
 				94F3E658352FDCE41F66BA13 /* Recapture.swift */,
@@ -281,6 +287,7 @@
 				4103F474F8AA1A26B8A8ACCC /* Display.swift in Sources */,
 				D6210A8B16110C59FFA2BC42 /* DisplayMap.swift in Sources */,
 				627D3CD5C16F6FA230FE9FF9 /* FramePlacement.swift in Sources */,
+				DF40DD2C79A057C5882631FA /* LaunchPlanner.swift in Sources */,
 				50F780C1058966E8198C353F /* LiveDisplay.swift in Sources */,
 				9A6FC3F011FF568CBF29745F /* Log.swift in Sources */,
 				6B4B09F4F020593495748B6E /* MatchableWindow.swift in Sources */,
@@ -302,6 +309,7 @@
 				E3CFA5C2101BED58222DAFD8 /* CaptureOrderingTests.swift in Sources */,
 				2184E818FCB3FBBF1ACA92FD /* DisplayMapTests.swift in Sources */,
 				AE4110488393F7E3806EE252 /* FramePlacementTests.swift in Sources */,
+				BA3F204DE701B2055BD18B21 /* LaunchPlannerTests.swift in Sources */,
 				3A17644FBB1009090D21730E /* RecaptureTests.swift in Sources */,
 				48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */,
 				D8223C8C01B548C04C553F03 /* WindowMatcherTests.swift in Sources */,
