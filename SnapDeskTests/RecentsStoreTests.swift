@@ -71,8 +71,33 @@ final class RecentsStoreTests: XCTestCase {
         let reloaded = RecentsStore(defaults: defaults)
         XCTAssertEqual(reloaded.urls.count, 1)
         XCTAssertEqual(
-            reloaded.urls[0].standardizedFileURL.path,
-            url.standardizedFileURL.path
+            reloaded.urls[0].resolvingSymlinksInPath().path,
+            url.resolvingSymlinksInPath().path
         )
+    }
+
+    func testReloadThenReAddDoesNotDuplicateAndRemoveWorks() throws {
+        let defaults = scratchDefaults()
+        let first = try makeTempFile(named: "first")
+        let second = try makeTempFile(named: "second")
+
+        let store = RecentsStore(defaults: defaults)
+        store.add(first)
+        store.add(second)
+
+        let reloaded = RecentsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.urls.count, 2)
+        // Prefer the symlink case (/var vs /private/var) when the environment provides it.
+        if second.path != second.resolvingSymlinksInPath().path {
+            XCTAssertNotEqual(reloaded.urls[0].path, second.path)
+        }
+
+        reloaded.add(second)
+        XCTAssertEqual(reloaded.urls.count, 2, "re-add after reload must not duplicate")
+        XCTAssertEqual(reloaded.urls[0].resolvingSymlinksInPath().path, second.resolvingSymlinksInPath().path)
+
+        reloaded.remove(first)
+        XCTAssertEqual(reloaded.urls.count, 1)
+        XCTAssertEqual(reloaded.urls[0].resolvingSymlinksInPath().path, second.resolvingSymlinksInPath().path)
     }
 }

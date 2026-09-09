@@ -87,6 +87,11 @@ final class RecentsStore {
     }
 
     private static func sameFile(_ a: URL, _ b: URL) -> Bool {
-        a.standardizedFileURL.path == b.standardizedFileURL.path
+        fileIdentity(a) == fileIdentity(b)
+    }
+
+    /// Symlink-resolved path so `/var/...` and `/private/var/...` match after bookmark reload.
+    private static func fileIdentity(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().path
     }
 }
