@@ -8,12 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		266932C24176DACBD24ED7CF /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */; };
+		4103F474F8AA1A26B8A8ACCC /* Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FDDEBA8B1D33AE992426D8C /* Display.swift */; };
+		48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */; };
+		627D3CD5C16F6FA230FE9FF9 /* FramePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */; };
 		6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183645B2A58A9D2406843FFE /* SnapDeskApp.swift */; };
 		8D2E25C2163771854541DB5F /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 1507B4D577D78632A681E273 /* KeyboardShortcuts */; };
 		9A6FC3F011FF568CBF29745F /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2C46611975D5689D5E9053 /* Log.swift */; };
 		9DCCDC830E8A280EFFB8EE88 /* BundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */; };
 		A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */; };
+		AE4110488393F7E3806EE252 /* FramePlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399E6704F533FFAE205B130E /* FramePlacementTests.swift */; };
 		DDA986D571159EEE48DBEAE5 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74D594D110A201FEEDDE208C /* ApplicationServices.framework */; };
+		F0852E0EE76E76ED797B5A28 /* ScreenGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,8 +34,13 @@
 /* Begin PBXFileReference section */
 		0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		183645B2A58A9D2406843FFE /* SnapDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapDeskApp.swift; sourceTree = "<group>"; };
+		399E6704F533FFAE205B130E /* FramePlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePlacementTests.swift; sourceTree = "<group>"; };
 		3BC03DEA2D3281AC786633ED /* SnapDesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SnapDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		74D594D110A201FEEDDE208C /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
+		7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePlacement.swift; sourceTree = "<group>"; };
+		803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenGeometryTests.swift; sourceTree = "<group>"; };
+		8FDDEBA8B1D33AE992426D8C /* Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Display.swift; sourceTree = "<group>"; };
+		B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenGeometry.swift; sourceTree = "<group>"; };
 		B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SnapDesk.entitlements; sourceTree = "<group>"; };
 		CD2C46611975D5689D5E9053 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
@@ -57,6 +67,8 @@
 			isa = PBXGroup;
 			children = (
 				FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */,
+				399E6704F533FFAE205B130E /* FramePlacementTests.swift */,
+				803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */,
 			);
 			path = SnapDeskTests;
 			sourceTree = "<group>";
@@ -90,6 +102,16 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		6D7967CFB1208DE0EDBE77A8 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				8FDDEBA8B1D33AE992426D8C /* Display.swift */,
+				7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */,
+				B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
 		744E88DA4AED4AA61066041C /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -103,6 +125,7 @@
 			isa = PBXGroup;
 			children = (
 				4D1288C4B4D290690AAC4BE8 /* App */,
+				6D7967CFB1208DE0EDBE77A8 /* Core */,
 				1CDC22A40BC66E9030755F48 /* Support */,
 			);
 			path = SnapDesk;
@@ -200,7 +223,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */,
+				4103F474F8AA1A26B8A8ACCC /* Display.swift in Sources */,
+				627D3CD5C16F6FA230FE9FF9 /* FramePlacement.swift in Sources */,
 				9A6FC3F011FF568CBF29745F /* Log.swift in Sources */,
+				F0852E0EE76E76ED797B5A28 /* ScreenGeometry.swift in Sources */,
 				6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -210,6 +236,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				9DCCDC830E8A280EFFB8EE88 /* BundleTests.swift in Sources */,
+				AE4110488393F7E3806EE252 /* FramePlacementTests.swift in Sources */,
+				48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
