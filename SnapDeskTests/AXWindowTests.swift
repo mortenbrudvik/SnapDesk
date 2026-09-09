@@ -177,18 +177,16 @@ final class AXWindowTests: XCTestCase {
     // MARK: Minimized
 
     func testMinimizedRoundTripsOnOurWindow() throws {
+        try XCTSkipIf(
+            (Bundle.main.object(forInfoDictionaryKey: "LSUIElement") as? NSNumber)?.boolValue == true,
+            "miniaturizing an LSUIElement test-host window takes the process down"
+        )
         let window = makeWindow()
         let ax = try axWindow(for: window)
         XCTAssertFalse(ax.isMinimized)
         XCTAssertEqual(ax.setMinimized(true), .success)
-        for _ in 0..<20 where !ax.isMinimized {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
         XCTAssertTrue(ax.isMinimized)
         XCTAssertEqual(ax.setMinimized(false), .success)
-        for _ in 0..<20 where ax.isMinimized {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
         XCTAssertFalse(ax.isMinimized)
     }
 }

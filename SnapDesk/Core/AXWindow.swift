@@ -108,10 +108,7 @@ struct AXWindow {
     private func withEnhancedUserInterfaceDisabled(_ write: () -> AXError) -> AXError {
         guard let pid else { return write() }
         let app = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        let wasOn = AXUIElementCopyAttributeValue(app, Self.enhancedUserInterface, &value) == .success
-            && (value as? NSNumber)?.boolValue == true
-        guard wasOn else { return write() }
+        guard boolValue(app, Self.enhancedUserInterface as String) else { return write() }
 
         let disabled = AXUIElementSetAttributeValue(app, Self.enhancedUserInterface, kCFBooleanFalse)
         if disabled != .success {
@@ -128,7 +125,7 @@ struct AXWindow {
     // MARK: Min / zoom
 
     var isMinimized: Bool {
-        boolValue(kAXMinimizedAttribute)
+        boolValue(element, kAXMinimizedAttribute)
     }
 
     @discardableResult
@@ -137,7 +134,7 @@ struct AXWindow {
     }
 
     var isZoomed: Bool {
-        boolValue("AXZoomed")
+        boolValue(element, "AXZoomed")
     }
 
     @discardableResult
@@ -184,14 +181,6 @@ struct AXWindow {
         return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, ax)
     }
 
-    private func boolValue(_ attribute: String) -> Bool {
-        guard let value = copyValue(element, attribute) else { return false }
-        if CFGetTypeID(value) == CFBooleanGetTypeID() {
-            return CFBooleanGetValue(unsafeDowncast(value, to: CFBoolean.self))
-        }
-        return (value as? NSNumber)?.boolValue ?? false
-    }
-
     private func setBool(_ attribute: String, _ value: Bool) -> AXError {
         AXUIElementSetAttributeValue(element, attribute as CFString, value ? kCFBooleanTrue : kCFBooleanFalse)
     }
@@ -206,4 +195,12 @@ private func copyValue(_ element: AXUIElement, _ attribute: String) -> CFTypeRef
 
 private func stringValue(_ element: AXUIElement, _ attribute: String) -> String? {
     copyValue(element, attribute) as? String
+}
+
+private func boolValue(_ element: AXUIElement, _ attribute: String) -> Bool {
+    guard let value = copyValue(element, attribute) else { return false }
+    if CFGetTypeID(value) == CFBooleanGetTypeID() {
+        return CFBooleanGetValue(unsafeDowncast(value, to: CFBoolean.self))
+    }
+    return (value as? NSNumber)?.boolValue ?? false
 }
