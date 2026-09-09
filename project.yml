@@ -1,0 +1,82 @@
+name: SnapDesk
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  bundleIdPrefix: com.brudvik
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: "2.0.0"
+
+targets:
+  SnapDesk:
+    type: application
+    platform: macOS
+    sources:
+      - path: SnapDesk
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.brudvik.snapdesk
+        PRODUCT_NAME: SnapDesk
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: SnapDesk/App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SnapDesk/App/SnapDesk.entitlements
+        ENABLE_HARDENED_RUNTIME: false
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+        DEVELOPMENT_TEAM: 3GS65HFAFH
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: false
+        ENABLE_APP_SANDBOX: false
+        COMBINE_HIDPI_IMAGES: true
+      configs:
+        Debug:
+          ENABLE_TESTABILITY: YES
+        Release:
+          ENABLE_HARDENED_RUNTIME: true
+          CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"
+          OTHER_CODE_SIGN_FLAGS: --timestamp
+          ARCHS: arm64
+    dependencies:
+      - package: KeyboardShortcuts
+      - sdk: ApplicationServices.framework
+      - sdk: ServiceManagement.framework
+
+  SnapDeskTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - SnapDeskTests
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.brudvik.snapdesk.tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/SnapDesk.app/Contents/MacOS/SnapDesk
+        BUNDLE_LOADER: $(TEST_HOST)
+    dependencies:
+      - target: SnapDesk
+
+schemes:
+  SnapDesk:
+    build:
+      targets:
+        SnapDesk: all
+        SnapDeskTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - SnapDeskTests
+    archive:
+      config: Release

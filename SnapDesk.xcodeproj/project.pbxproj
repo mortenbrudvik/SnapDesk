@@ -1,0 +1,495 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		266932C24176DACBD24ED7CF /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */; };
+		6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183645B2A58A9D2406843FFE /* SnapDeskApp.swift */; };
+		8D2E25C2163771854541DB5F /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 1507B4D577D78632A681E273 /* KeyboardShortcuts */; };
+		9A6FC3F011FF568CBF29745F /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2C46611975D5689D5E9053 /* Log.swift */; };
+		9DCCDC830E8A280EFFB8EE88 /* BundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */; };
+		A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */; };
+		DDA986D571159EEE48DBEAE5 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74D594D110A201FEEDDE208C /* ApplicationServices.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		49D10847FC2D712311E32362 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 03764CB1D114097423B4CAF7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EFB69542CA3ED9873C74DD5B;
+			remoteInfo = SnapDesk;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		183645B2A58A9D2406843FFE /* SnapDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapDeskApp.swift; sourceTree = "<group>"; };
+		3BC03DEA2D3281AC786633ED /* SnapDesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SnapDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		74D594D110A201FEEDDE208C /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
+		B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SnapDesk.entitlements; sourceTree = "<group>"; };
+		CD2C46611975D5689D5E9053 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
+		DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnapDeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C9F9B823DA3EF25A0241CEA0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8D2E25C2163771854541DB5F /* KeyboardShortcuts in Frameworks */,
+				DDA986D571159EEE48DBEAE5 /* ApplicationServices.framework in Frameworks */,
+				266932C24176DACBD24ED7CF /* ServiceManagement.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		01B2F650BDE183E3D08F6146 /* SnapDeskTests */ = {
+			isa = PBXGroup;
+			children = (
+				FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */,
+			);
+			path = SnapDeskTests;
+			sourceTree = "<group>";
+		};
+		1CDC22A40BC66E9030755F48 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				CD2C46611975D5689D5E9053 /* Log.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		38FE7DA48337677809B7487E = {
+			isa = PBXGroup;
+			children = (
+				B2C30C3EBFC1D80A1E5E87F4 /* SnapDesk */,
+				01B2F650BDE183E3D08F6146 /* SnapDeskTests */,
+				744E88DA4AED4AA61066041C /* Frameworks */,
+				EB7FF4077B4EB0636197CC3C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4D1288C4B4D290690AAC4BE8 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */,
+				F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */,
+				C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */,
+				183645B2A58A9D2406843FFE /* SnapDeskApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		744E88DA4AED4AA61066041C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				74D594D110A201FEEDDE208C /* ApplicationServices.framework */,
+				0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B2C30C3EBFC1D80A1E5E87F4 /* SnapDesk */ = {
+			isa = PBXGroup;
+			children = (
+				4D1288C4B4D290690AAC4BE8 /* App */,
+				1CDC22A40BC66E9030755F48 /* Support */,
+			);
+			path = SnapDesk;
+			sourceTree = "<group>";
+		};
+		EB7FF4077B4EB0636197CC3C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3BC03DEA2D3281AC786633ED /* SnapDesk.app */,
+				DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A654410C35578DBEA4E3D248 /* SnapDeskTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 551876B22F6723E113A0EB58 /* Build configuration list for PBXNativeTarget "SnapDeskTests" */;
+			buildPhases = (
+				A944B98097DAF5D3BA6E3394 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				219626ACC82C2849300E8356 /* PBXTargetDependency */,
+			);
+			name = SnapDeskTests;
+			packageProductDependencies = (
+			);
+			productName = SnapDeskTests;
+			productReference = DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		EFB69542CA3ED9873C74DD5B /* SnapDesk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9D8E94E6159E283A9CF9BFA1 /* Build configuration list for PBXNativeTarget "SnapDesk" */;
+			buildPhases = (
+				99842F4D931E3F70DB0EAC85 /* Sources */,
+				C9F9B823DA3EF25A0241CEA0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SnapDesk;
+			packageProductDependencies = (
+				1507B4D577D78632A681E273 /* KeyboardShortcuts */,
+			);
+			productName = SnapDesk;
+			productReference = 3BC03DEA2D3281AC786633ED /* SnapDesk.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		03764CB1D114097423B4CAF7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					EFB69542CA3ED9873C74DD5B = {
+						DevelopmentTeam = 3GS65HFAFH;
+					};
+				};
+			};
+			buildConfigurationList = 985AD88B41AFA4BD83A06ED9 /* Build configuration list for PBXProject "SnapDesk" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 38FE7DA48337677809B7487E;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CEFD14AA68DAB0C0580AF412 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = EB7FF4077B4EB0636197CC3C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EFB69542CA3ED9873C74DD5B /* SnapDesk */,
+				A654410C35578DBEA4E3D248 /* SnapDeskTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		99842F4D931E3F70DB0EAC85 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */,
+				9A6FC3F011FF568CBF29745F /* Log.swift in Sources */,
+				6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A944B98097DAF5D3BA6E3394 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9DCCDC830E8A280EFFB8EE88 /* BundleTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		219626ACC82C2849300E8356 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EFB69542CA3ED9873C74DD5B /* SnapDesk */;
+			targetProxy = 49D10847FC2D712311E32362 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0952BD0B7237E495A870016B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		09904FC25396F11DAF3EF6E3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SnapDesk/App/SnapDesk.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3GS65HFAFH;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SnapDesk/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk;
+				PRODUCT_NAME = SnapDesk;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		3064FF94F2D66977D668F770 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SnapDesk.app/Contents/MacOS/SnapDesk";
+			};
+			name = Release;
+		};
+		3068CD25BB7F8BF50803920C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SnapDesk/App/SnapDesk.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: Morten Brudvik (3GS65HFAFH)";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3GS65HFAFH;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SnapDesk/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk;
+				PRODUCT_NAME = SnapDesk;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		456725151241E251947AC0CF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SnapDesk.app/Contents/MacOS/SnapDesk";
+			};
+			name = Debug;
+		};
+		C4AF850AF4DF3D9AEE7B094D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		551876B22F6723E113A0EB58 /* Build configuration list for PBXNativeTarget "SnapDeskTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				456725151241E251947AC0CF /* Debug */,
+				3064FF94F2D66977D668F770 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		985AD88B41AFA4BD83A06ED9 /* Build configuration list for PBXProject "SnapDesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4AF850AF4DF3D9AEE7B094D /* Debug */,
+				0952BD0B7237E495A870016B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9D8E94E6159E283A9CF9BFA1 /* Build configuration list for PBXNativeTarget "SnapDesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09904FC25396F11DAF3EF6E3 /* Debug */,
+				3068CD25BB7F8BF50803920C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CEFD14AA68DAB0C0580AF412 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1507B4D577D78632A681E273 /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CEFD14AA68DAB0C0580AF412 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 03764CB1D114097423B4CAF7 /* Project object */;
+}
