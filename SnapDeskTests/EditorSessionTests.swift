@@ -8,7 +8,7 @@ final class EditorSessionTests: XCTestCase {
         let second = savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo", arguments: "")
         let session = EditorSession(
             document: makeDocument(windows: [first, second]),
-            fileURL: nil
+            fileURL: URL(fileURLWithPath: "/tmp/coding.snapdesk")
         )
         XCTAssertFalse(session.isDirty)
 
@@ -90,6 +90,20 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertThrowsError(try session.save()) { error in
             XCTAssertEqual(error as? EditorSessionError, .noFileURL)
         }
+    }
+
+    func testCapturedUntitledWithWindowsIsDirtyAndEmptyUntitledIsClean() {
+        let captured = EditorSession(
+            document: makeDocument(
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub", arguments: "")]
+            ),
+            fileURL: nil
+        )
+        XCTAssertTrue(captured.isDirty, "a captured untitled document must prompt on close")
+
+        let empty = EditorSession(document: EditorSession.untitledDocument, fileURL: nil)
+        XCTAssertFalse(empty.isDirty)
+        XCTAssertTrue(empty.document.windows.isEmpty)
     }
 
     private func makeDocument(

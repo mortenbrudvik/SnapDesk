@@ -23,7 +23,7 @@ final class EditorSession: ObservableObject {
         self.document = document
         self.fileURL = fileURL
         self.recents = recents
-        self.isDirty = false
+        self.isDirty = fileURL == nil && !document.windows.isEmpty
     }
 
     func removeWindow(at index: Int) {

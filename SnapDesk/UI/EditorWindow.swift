@@ -89,6 +89,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             if window?.isVisible == true {
                 host.session.applyCapture(captured)
             } else {
+                guard confirmDiscardIfNeeded() else {
+                    present()
+                    return
+                }
                 replaceSession(
                     EditorSession(document: captured, fileURL: nil, recents: recents)
                 )
