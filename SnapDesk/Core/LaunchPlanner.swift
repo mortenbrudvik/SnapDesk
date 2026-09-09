@@ -11,22 +11,12 @@ struct SlotPlan: Equatable {
 }
 
 enum LaunchPlanner {
-    static func plan(document: WorkspaceDocument, runningBundleIDs: Set<String>) -> [SlotPlan] {
+    static func plan(
+        document: WorkspaceDocument,
+        runningBundleIDs: Set<String>,
+        prohibitsMultipleInstances: (String, String) -> Bool = { _, _ in false }
+    ) -> [SlotPlan] {
         let windows = document.windows
-        if !document.moveExistingWindows {
-            return windows.enumerated().map { index, window in
-                SlotPlan(
-                    index: index,
-                    action: .launch(
-                        bundleIdentifier: window.bundleIdentifier,
-                        path: window.bundlePath,
-                        arguments: ArgumentTokenizer.tokenize(window.arguments),
-                        newInstance: true
-                    )
-                )
-            }
-        }
-
         var groupOrder: [String] = []
         var groupIndices: [String: [Int]] = [:]
         for (index, window) in windows.enumerated() {
@@ -42,11 +32,25 @@ enum LaunchPlanner {
         for key in groupOrder {
             let indices = groupIndices[key]!
             let first = windows[indices[0]]
+            let moveExisting = document.moveExistingWindows
+                || prohibitsMultipleInstances(first.bundleIdentifier, first.bundlePath)
             let isRunning = runningBundleIDs.contains(first.bundleIdentifier)
             for (offset, index) in indices.enumerated() {
                 let window = windows[index]
-                if isRunning || offset > 0 {
-                    plans[index] = SlotPlan(index: index, action: .reuse)
+                if moveExisting {
+                    if isRunning || offset > 0 {
+                        plans[index] = SlotPlan(index: index, action: .reuse)
+                    } else {
+                        plans[index] = SlotPlan(
+                            index: index,
+                            action: .launch(
+                                bundleIdentifier: window.bundleIdentifier,
+                                path: window.bundlePath,
+                                arguments: ArgumentTokenizer.tokenize(window.arguments),
+                                newInstance: false
+                            )
+                        )
+                    }
                 } else {
                     plans[index] = SlotPlan(
                         index: index,
@@ -54,7 +58,7 @@ enum LaunchPlanner {
                             bundleIdentifier: window.bundleIdentifier,
                             path: window.bundlePath,
                             arguments: ArgumentTokenizer.tokenize(window.arguments),
-                            newInstance: false
+                            newInstance: true
                         )
                     )
                 }

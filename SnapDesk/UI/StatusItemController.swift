@@ -141,7 +141,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
+        panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [UTType("com.brudvik.snapdesk") ?? .json]
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {

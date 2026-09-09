@@ -154,6 +154,78 @@ final class LaunchPlannerTests: XCTestCase {
         )
     }
 
+    func testSingleInstanceForcedOntoReuseWhenMoveExistingOff() {
+        let settingsID = "com.apple.systempreferences"
+        let settingsPath = "/System/Applications/System Settings.app"
+        let doc = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Settings",
+            moveExistingWindows: false,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: settingsID, bundlePath: settingsPath, name: "Settings", arguments: ""),
+                savedWindow(bundleIdentifier: settingsID, bundlePath: settingsPath, name: "Settings", arguments: ""),
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: ""),
+            ]
+        )
+
+        let plans = LaunchPlanner.plan(
+            document: doc,
+            runningBundleIDs: [],
+            prohibitsMultipleInstances: { bundleID, _ in bundleID == settingsID }
+        )
+
+        XCTAssertEqual(
+            plans[0],
+            SlotPlan(
+                index: 0,
+                action: .launch(
+                    bundleIdentifier: settingsID,
+                    path: settingsPath,
+                    arguments: [],
+                    newInstance: false
+                )
+            )
+        )
+        XCTAssertEqual(plans[1], SlotPlan(index: 1, action: .reuse))
+        XCTAssertEqual(
+            plans[2],
+            SlotPlan(
+                index: 2,
+                action: .launch(
+                    bundleIdentifier: safariID,
+                    path: safariPath,
+                    arguments: [],
+                    newInstance: true
+                )
+            )
+        )
+    }
+
+    func testSingleInstanceAlreadyRunningReusesEverySlot() {
+        let settingsID = "com.apple.systempreferences"
+        let settingsPath = "/System/Applications/System Settings.app"
+        let doc = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Settings",
+            moveExistingWindows: false,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: settingsID, bundlePath: settingsPath, name: "Settings", arguments: ""),
+                savedWindow(bundleIdentifier: settingsID, bundlePath: settingsPath, name: "Settings", arguments: ""),
+            ]
+        )
+
+        let plans = LaunchPlanner.plan(
+            document: doc,
+            runningBundleIDs: [settingsID],
+            prohibitsMultipleInstances: { bundleID, _ in bundleID == settingsID }
+        )
+
+        XCTAssertEqual(plans[0], SlotPlan(index: 0, action: .reuse))
+        XCTAssertEqual(plans[1], SlotPlan(index: 1, action: .reuse))
+    }
+
     func testPlaceOrderDescending() {
         XCTAssertEqual(LaunchPlanner.placeOrder(windowCount: 3), [2, 1, 0])
     }

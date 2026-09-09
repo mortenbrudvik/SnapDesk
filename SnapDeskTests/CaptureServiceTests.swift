@@ -114,6 +114,40 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertEqual(minimizedSaved.arguments, "")
     }
 
+    func testOffScreenCenterAssignsLargestIntersectionNotMain() {
+        let left = LiveDisplay(
+            id: "LEFT",
+            name: "Left",
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            visibleFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+            scale: 1
+        )
+        let right = LiveDisplay(
+            id: "RIGHT",
+            name: "Right",
+            frame: CGRect(x: 800, y: 0, width: 800, height: 600),
+            visibleFrame: CGRect(x: 800, y: 0, width: 800, height: 600),
+            scale: 1
+        )
+        let hangingOffRight = snapshot(
+            cgWindowID: 10,
+            title: "Hang",
+            cocoaFrame: CGRect(x: 1000, y: 500, width: 400, height: 200)
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [hangingOffRight]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [left, right])
+        )
+
+        let doc = service.capture()
+
+        XCTAssertEqual(doc.windows.count, 1)
+        XCTAssertEqual(doc.windows[0].displayId, right.id)
+        XCTAssertNotEqual(doc.windows[0].displayId, left.id)
+    }
+
     func testEmptyEligibleSetStillCapturesDisplays() {
         let service = CaptureService(
             apps: FakeApps(running: [snapDesk]),

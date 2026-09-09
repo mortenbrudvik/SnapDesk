@@ -40,9 +40,24 @@ enum ScreenGeometry {
     }
 
     /// The display under the centre of `rect`. A window straddling two displays belongs to
-    /// the one holding more than half of it.
+    /// the one holding more than half of it. If the centre is off every display, the display
+    /// with the largest intersection wins; none if the rect misses every display.
     static func display(containing rect: CGRect, in displays: [Display] = Display.all) -> Display? {
-        display(containing: CGPoint(x: rect.midX, y: rect.midY), in: displays)
+        if let match = display(containing: CGPoint(x: rect.midX, y: rect.midY), in: displays) {
+            return match
+        }
+        var best: Display?
+        var bestArea: CGFloat = 0
+        for display in displays {
+            let intersection = display.frame.intersection(rect)
+            guard !intersection.isNull, !intersection.isEmpty else { continue }
+            let area = intersection.width * intersection.height
+            if area > bestArea {
+                bestArea = area
+                best = display
+            }
+        }
+        return best
     }
 
     private static func flipped(_ rect: CGRect, primaryMaxY: CGFloat) -> CGRect {

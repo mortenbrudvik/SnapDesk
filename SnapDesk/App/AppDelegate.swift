@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     var settingsOpener: () -> Void = {}
     private var editorWindow: EditorWindowController?
     private var settingsWindow: SettingsWindowController?
+    private var launchChain: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -100,6 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         for url in urls {
             WorkspaceOpener().open(url: url, launching: self, alerting: self)
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if editorWindow?.prepareForTermination() == false {
+            return .terminateCancel
+        }
+        return .terminateNow
     }
 
     func launch(url: URL) {
@@ -146,9 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     }
 
     private func startLaunch(_ document: WorkspaceDocument) {
-        launchHUD.present(title: document.name)
-        Task { [weak self] in
+        let previous = launchChain
+        launchChain = Task { [weak self] in
+            await previous?.value
             guard let self else { return }
+            self.launchHUD.present(title: document.name)
             _ = await self.launchService.launch(document) { [weak self] progress in
                 self?.launchHUD.update(progress)
                 self?.hudPresenter(progress)

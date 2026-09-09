@@ -19,6 +19,43 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertTrue(session.isDirty)
     }
 
+    func testRemoveWindowPreservesRemainingRowIdentity() {
+        let first = savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub", arguments: "")
+        let second = savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo", arguments: "")
+        let session = EditorSession(
+            document: makeDocument(windows: [first, second]),
+            fileURL: nil
+        )
+        XCTAssertEqual(session.rowIDs.count, 2)
+        let secondID = session.rowIDs[1]
+
+        session.removeWindow(at: 0)
+
+        XCTAssertEqual(session.rowIDs, [secondID])
+        XCTAssertEqual(session.document.windows.count, 1)
+    }
+
+    func testApplyCaptureRebuildsRowIdentitiesToMatchWindows() {
+        let session = EditorSession(
+            document: makeDocument(windows: [
+                savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub", arguments: ""),
+            ]),
+            fileURL: nil
+        )
+        let oldIDs = session.rowIDs
+
+        session.applyCapture(
+            makeDocument(windows: [
+                savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub", arguments: ""),
+                savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo", arguments: ""),
+            ])
+        )
+
+        XCTAssertEqual(session.rowIDs.count, 2)
+        XCTAssertNotEqual(session.rowIDs, oldIDs)
+        XCTAssertEqual(Set(oldIDs).intersection(session.rowIDs), [])
+    }
+
     func testApplyCapturePreservesArgumentsOnMatchAndPreservesNameAndMoveExisting() {
         let old = savedWindow(
             bundleIdentifier: "com.apple.Safari",

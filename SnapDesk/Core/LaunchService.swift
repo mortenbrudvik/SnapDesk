@@ -56,6 +56,40 @@ protocol Clock {
 }
 
 @MainActor
+enum InfoPlistInstancePolicy {
+    static func prohibitsMultipleInstances(bundleIdentifier: String, path: String) -> Bool {
+        var urls: [URL] = []
+        if !path.isEmpty {
+            urls.append(URL(fileURLWithPath: path))
+        }
+        if !bundleIdentifier.isEmpty,
+           let resolved = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+        {
+            urls.append(resolved)
+        }
+        for appURL in urls {
+            if readProhibited(from: appURL) { return true }
+        }
+        return false
+    }
+
+    private static func readProhibited(from appURL: URL) -> Bool {
+        if let bundle = Bundle(url: appURL),
+           let value = bundle.object(forInfoDictionaryKey: "LSMultipleInstancesProhibited") as? Bool
+        {
+            return value
+        }
+        let plist = appURL.appendingPathComponent("Contents/Info.plist")
+        if let dict = NSDictionary(contentsOf: plist),
+           let value = dict["LSMultipleInstancesProhibited"] as? Bool
+        {
+            return value
+        }
+        return false
+    }
+}
+
+@MainActor
 final class LaunchService {
     private let launcher: any ApplicationLaunching
     private let apps: any RunningApplicationQuerying
@@ -65,7 +99,10 @@ final class LaunchService {
     private let clock: any Clock
     private let launchTimeout: Duration
     private let windowTimeout: Duration
+    private let prohibitsMultipleInstances: (String, String) -> Bool
     private var cancelled = false
+    private var isRunning = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         launcher: any ApplicationLaunching,
@@ -75,7 +112,8 @@ final class LaunchService {
         displays: any DisplayCatalog,
         clock: any Clock,
         launchTimeout: Duration = .seconds(10),
-        windowTimeout: Duration = .seconds(8)
+        windowTimeout: Duration = .seconds(8),
+        prohibitsMultipleInstances: @escaping (String, String) -> Bool = { _, _ in false }
     ) {
         self.launcher = launcher
         self.apps = apps
@@ -85,6 +123,7 @@ final class LaunchService {
         self.clock = clock
         self.launchTimeout = launchTimeout
         self.windowTimeout = windowTimeout
+        self.prohibitsMultipleInstances = prohibitsMultipleInstances
     }
 
     convenience init(
@@ -100,7 +139,13 @@ final class LaunchService {
             displays: NSScreenCatalog(),
             clock: clock,
             launchTimeout: launchTimeout,
-            windowTimeout: windowTimeout
+            windowTimeout: windowTimeout,
+            prohibitsMultipleInstances: { bundleID, path in
+                InfoPlistInstancePolicy.prohibitsMultipleInstances(
+                    bundleIdentifier: bundleID,
+                    path: path
+                )
+            }
         )
     }
 
@@ -112,7 +157,11 @@ final class LaunchService {
         _ document: WorkspaceDocument,
         onProgress: @MainActor @escaping ([SlotProgress]) -> Void
     ) async -> [SlotProgress] {
-        defer { cancelled = false }
+        await beginLaunch()
+        defer {
+            cancelled = false
+            endLaunch()
+        }
 
         let slots = document.windows
         if slots.isEmpty {
@@ -131,8 +180,42 @@ final class LaunchService {
             return progress
         }
 
-        let plans = LaunchPlanner.plan(document: document, runningBundleIDs: apps.runningBundleIDs())
+        let plans = LaunchPlanner.plan(
+            document: document,
+            runningBundleIDs: apps.runningBundleIDs(),
+            prohibitsMultipleInstances: prohibitsMultipleInstances
+        )
         Log.launch.info("launching \(document.name, privacy: .public) with \(slots.count) slot(s)")
+
+        for plan in plans {
+            if cancelled {
+                failPending(&progress)
+                onProgress(progress)
+                return progress
+            }
+            guard case .launch(_, _, let arguments, let newInstance) = plan.action else { continue }
+
+            let index = plan.index
+            progress[index].status = .launching
+            onProgress(progress)
+
+            guard let url = resolveURL(for: slots[index]) else {
+                fail(&progress, index: index, reason: "App not found", onProgress: onProgress)
+                continue
+            }
+            let configuration = LaunchConfiguration(
+                arguments: arguments,
+                createsNewApplicationInstance: newInstance,
+                activates: false
+            )
+            do {
+                try await open(at: url, configuration: configuration)
+                progress[index].status = .pending
+                onProgress(progress)
+            } catch {
+                fail(&progress, index: index, reason: "Launch failed", onProgress: onProgress)
+            }
+        }
 
         var claimed: Set<String> = []
         for index in LaunchPlanner.placeOrder(windowCount: slots.count) {
@@ -141,6 +224,7 @@ final class LaunchService {
                 onProgress(progress)
                 break
             }
+            if case .failed = progress[index].status { continue }
 
             progress[index].status = .launching
             onProgress(progress)
@@ -148,33 +232,12 @@ final class LaunchService {
             let slot = slots[index]
             let plan = plans[index]
 
-            let url: URL?
-            if let resolved = launcher.urlForApplication(bundleIdentifier: slot.bundleIdentifier) {
-                url = resolved
-            } else if launcher.applicationExists(at: slot.bundlePath) {
-                url = URL(fileURLWithPath: slot.bundlePath)
-            } else {
-                url = nil
-            }
-            guard let url else {
+            if resolveURL(for: slot) == nil {
                 fail(&progress, index: index, reason: "App not found", onProgress: onProgress)
                 continue
             }
 
-            switch plan.action {
-            case .launch(_, _, let arguments, let newInstance):
-                let configuration = LaunchConfiguration(
-                    arguments: arguments,
-                    createsNewApplicationInstance: newInstance,
-                    activates: false
-                )
-                do {
-                    try await open(at: url, configuration: configuration)
-                } catch {
-                    fail(&progress, index: index, reason: "Launch failed", onProgress: onProgress)
-                    continue
-                }
-            case .reuse:
+            if case .reuse = plan.action {
                 apps.unhide(bundleIdentifier: slot.bundleIdentifier)
             }
 
@@ -216,6 +279,32 @@ final class LaunchService {
 
         activateFrontmost(slots: slots, progress: progress)
         return progress
+    }
+
+    private func beginLaunch() async {
+        if isRunning {
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+        isRunning = true
+    }
+
+    private func endLaunch() {
+        isRunning = false
+        guard !waiters.isEmpty else { return }
+        let next = waiters.removeFirst()
+        next.resume()
+    }
+
+    private func resolveURL(for slot: SavedWindow) -> URL? {
+        if let resolved = launcher.urlForApplication(bundleIdentifier: slot.bundleIdentifier) {
+            return resolved
+        }
+        if launcher.applicationExists(at: slot.bundlePath) {
+            return URL(fileURLWithPath: slot.bundlePath)
+        }
+        return nil
     }
 
     private func open(at url: URL, configuration: LaunchConfiguration) async throws {

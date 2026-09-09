@@ -60,4 +60,20 @@ final class ScreenGeometryTests: XCTestCase {
         let straddling = CGRect(x: 1500, y: 100, width: 1000, height: 500)
         XCTAssertEqual(ScreenGeometry.display(containing: straddling, in: displays), right)
     }
+
+    func testRectWithOffScreenCenterUsesLargestIntersection() {
+        let hangingOffPrimary = CGRect(x: 100, y: 1000, width: 400, height: 200)
+        XCTAssertNil(ScreenGeometry.display(containing: CGPoint(x: 300, y: 1100), in: displays))
+        XCTAssertEqual(ScreenGeometry.display(containing: hangingOffPrimary, in: displays), primary)
+
+        let hangingOffRight = CGRect(x: 2500, y: 1100, width: 400, height: 200)
+        XCTAssertNil(ScreenGeometry.display(containing: CGPoint(x: 2700, y: 1200), in: displays))
+        XCTAssertEqual(ScreenGeometry.display(containing: hangingOffRight, in: displays), right)
+    }
+
+    func testRectOffEveryDisplayResolvesToNothing() {
+        let off = CGRect(x: 960, y: 5000, width: 100, height: 100)
+        XCTAssertNil(ScreenGeometry.display(containing: off, in: displays))
+        XCTAssertNil(ScreenGeometry.display(containing: off, in: []))
+    }
 }

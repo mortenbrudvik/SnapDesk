@@ -46,11 +46,18 @@ enum AccessibilityAuth {
     /// `var`, which Swift 6 strict concurrency rejects as shared mutable state.
     private static let promptOption = "AXTrustedCheckOptionPrompt"
 
-    /// Shows the system Accessibility dialog at launch when the permission is missing. That
-    /// dialog and the relaunch alert each appear at most once per launch.
+    /// On launch, if Accessibility is not *effectively* working, show the system dialog when
+    /// TCC has not granted it and the remove/add/Relaunch alert otherwise. `isTrusted` can be
+    /// true while AX calls still fail (stale code signature), so TCC alone is not enough.
+    /// Each dialog appears at most once per launch.
     static func promptAtLaunchIfNeeded() {
-        guard !isTrusted else { return }
-        showSystemPromptOnce()
+        guard !isEffectivelyTrusted else { return }
+        if !isTrusted {
+            showSystemPromptOnce()
+        }
+        guard !didShowRelaunchAlert else { return }
+        didShowRelaunchAlert = true
+        showRelaunchAlert()
     }
 
     /// Guards the command path: a command that fails because Accessibility is disabled shows

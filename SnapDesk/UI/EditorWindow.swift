@@ -84,21 +84,36 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
+    var session: EditorSession { host.session }
+
     func open(captured: WorkspaceDocument?) {
         if let captured {
-            if window?.isVisible == true {
-                host.session.applyCapture(captured)
-            } else {
-                guard confirmDiscardIfNeeded() else {
-                    present()
-                    return
-                }
-                replaceSession(
-                    EditorSession(document: captured, fileURL: nil, recents: recents)
-                )
+            guard confirmDiscardIfNeeded() else {
+                present()
+                return
             }
+            replaceSession(
+                EditorSession(document: captured, fileURL: nil, recents: recents)
+            )
         }
         present()
+    }
+
+    func recapture() {
+        guard let captured = capture() else { return }
+        host.session.applyCapture(captured)
+    }
+
+    func prepareForTermination() -> Bool {
+        guard host.session.isDirty else { return true }
+        switch saveDontCancel() {
+        case .save:
+            return performSave()
+        case .dont:
+            return true
+        case .cancel:
+            return false
+        }
     }
 
     override func showWindow(_ sender: Any?) {
@@ -167,11 +182,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             .sink { [weak self] name in
                 self?.window?.title = Self.windowTitle(name)
             }
-    }
-
-    private func recapture() {
-        guard let captured = capture() else { return }
-        host.session.applyCapture(captured)
     }
 
     private func openPanel() {

@@ -152,7 +152,7 @@ private struct EditorSplitView: View {
                             .padding(.vertical, 24)
                             .frame(maxWidth: .infinity)
                     }
-                    ForEach(session.document.windows.indices, id: \.self) { index in
+                    ForEach(Array(zip(session.rowIDs, session.document.windows.indices)), id: \.0) { rowID, index in
                         WindowSlotRow(
                             window: $session.document.windows[index],
                             displays: session.document.displays,
@@ -160,14 +160,14 @@ private struct EditorSplitView: View {
                             onSelect: { host.selectedWindowIndex = index },
                             onRemove: { onRemoveWindow(index) }
                         )
-                        .id(index)
+                        .id(rowID)
                     }
                 }
                 .padding(.trailing, 8)
             }
             .onChange(of: host.selectedWindowIndex) { _, new in
-                if let new {
-                    proxy.scrollTo(new, anchor: .center)
+                if let new, session.rowIDs.indices.contains(new) {
+                    proxy.scrollTo(session.rowIDs[new], anchor: .center)
                 }
             }
         }
