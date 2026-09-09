@@ -62,6 +62,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     var editorOpener: (WorkspaceDocument?) -> Void = { _ in }
     var hudPresenter: @MainActor @Sendable ([SlotProgress]) -> Void = { _ in }
     var settingsOpener: () -> Void = {}
+    private var editorWindow: EditorWindowController?
+    private var settingsWindow: SettingsWindowController?
+
+    override init() {
+        super.init()
+        editorOpener = { [weak self] document in
+            self?.openEditor(captured: document)
+        }
+        settingsOpener = { [weak self] in
+            self?.openSettings()
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
@@ -147,5 +159,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     private func refuseUntrusted() {
         NSSound.beep()
         AccessibilityAuth.requestIfNeeded()
+    }
+
+    private func openEditor(captured: WorkspaceDocument?) {
+        if editorWindow == nil {
+            editorWindow = EditorWindowController(
+                recents: recents,
+                capture: { [weak self] in
+                    guard let self else { return nil }
+                    guard AccessibilityAuth.isEffectivelyTrusted else {
+                        self.refuseUntrusted()
+                        return nil
+                    }
+                    return self.captureService.capture()
+                },
+                launch: { [weak self] document in
+                    self?.launch(document: document)
+                }
+            )
+        }
+        editorWindow?.open(captured: captured)
+    }
+
+    private func openSettings() {
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindowController()
+        }
+        settingsWindow?.showWindow(nil)
     }
 }
