@@ -20,6 +20,7 @@
 		388230E4B821534324120597 /* RecentsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4DDB4030076229862DB55E /* RecentsStore.swift */; };
 		3A17644FBB1009090D21730E /* RecaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */; };
 		43268BC857289061F6A813D4 /* CaptureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */; };
+		45043F50C53214E121AEAC81 /* AboutPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D620CE508F380264073CA449 /* AboutPanel.swift */; };
 		4839749F4EEA849828414491 /* WindowMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0B136E3CF45F5ABB30659B /* WindowMatcher.swift */; };
 		48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */; };
 		4F9A65A2686E52407FA650F9 /* LaunchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4830660A2F4A37987259AE48 /* LaunchServiceTests.swift */; };
@@ -32,6 +33,7 @@
 		6B4B09F4F020593495748B6E /* MatchableWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */; };
 		6B7E6B80E8C50803246F2135 /* HotkeyName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5470D54268EA917BAD4609EA /* HotkeyName.swift */; };
 		6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183645B2A58A9D2406843FFE /* SnapDeskApp.swift */; };
+		70B7C10892E69C68A363A778 /* AboutPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C3D0F97D362A66334B7F8E /* AboutPanelTests.swift */; };
 		775BE4A95E28E48E897EC840 /* WindowIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F91A2017BAE6949B8919190 /* WindowIdentity.swift */; };
 		7B88D16C433506C4DC3D6D26 /* ArgumentTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651FFE574E16AAA229BFCDF8 /* ArgumentTokenizer.swift */; };
 		7C0431E60E6A0B2935EA4AD3 /* RecentsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59955E0C5538777B4FDF7EC6 /* RecentsStoreTests.swift */; };
@@ -87,6 +89,7 @@
 		03E41502E7E35574CFC668CA /* EditorSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSessionTests.swift; sourceTree = "<group>"; };
 		0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		0C0F8459CC765EF8A32DADA6 /* ArgumentTokenizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgumentTokenizerTests.swift; sourceTree = "<group>"; };
+		17C3D0F97D362A66334B7F8E /* AboutPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutPanelTests.swift; sourceTree = "<group>"; };
 		183645B2A58A9D2406843FFE /* SnapDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapDeskApp.swift; sourceTree = "<group>"; };
 		23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchableWindow.swift; sourceTree = "<group>"; };
 		2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrdering.swift; sourceTree = "<group>"; };
@@ -138,6 +141,7 @@
 		CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCandidate.swift; sourceTree = "<group>"; };
 		CD2C46611975D5689D5E9053 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		CEB335F42098609B99EB411A /* AXWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXWindowTests.swift; sourceTree = "<group>"; };
+		D620CE508F380264073CA449 /* AboutPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutPanel.swift; sourceTree = "<group>"; };
 		DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnapDeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFilter.swift; sourceTree = "<group>"; };
 		E0418AA50F3E1ADDCF1320C3 /* LaunchHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHUDController.swift; sourceTree = "<group>"; };
@@ -168,6 +172,7 @@
 		01B2F650BDE183E3D08F6146 /* SnapDeskTests */ = {
 			isa = PBXGroup;
 			children = (
+				17C3D0F97D362A66334B7F8E /* AboutPanelTests.swift */,
 				FE67075EE5D3CB2A698B2939 /* AccessibilityAuthTests.swift */,
 				B8D59324B30FE5C912A13940 /* AppDelegateOpenTests.swift */,
 				672B4DFF6DA94F0E0488A75B /* AppDelegateTests.swift */,
@@ -289,6 +294,7 @@
 		C191EEC9A5E19F8DECF1A79E /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				D620CE508F380264073CA449 /* AboutPanel.swift */,
 				7B328CA1BE2567B0E7702F88 /* EditorSession.swift */,
 				03CD9C915C37162DB14F88C8 /* EditorView.swift */,
 				664731B5909A34C7E4700228 /* EditorWindow.swift */,
@@ -404,6 +410,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				ED5AA6A2938F168038683FDB /* AXWindow.swift in Sources */,
+				45043F50C53214E121AEAC81 /* AboutPanel.swift in Sources */,
 				B477B2894300F5EC4592FE62 /* AccessibilityAuth.swift in Sources */,
 				A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */,
 				05730E0BE530F42931BB8D98 /* AppSettings.swift in Sources */,
@@ -444,6 +451,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2EEE4133CEFB82B51915594B /* AXWindowTests.swift in Sources */,
+				70B7C10892E69C68A363A778 /* AboutPanelTests.swift in Sources */,
 				31B59D3A5AB6D4AC0AA0B264 /* AccessibilityAuthTests.swift in Sources */,
 				BFFE1C4753EBA46DFB9DEB63 /* AppDelegateOpenTests.swift in Sources */,
 				9BBE3FEC5F5ABD6E3989CC23 /* AppDelegateTests.swift in Sources */,

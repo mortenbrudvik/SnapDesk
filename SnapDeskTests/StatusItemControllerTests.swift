@@ -30,6 +30,7 @@ final class StatusItemControllerTests: XCTestCase {
         var accessibilityTrusted: Bool
         var editorOpens = 0
         var settingsOpens = 0
+        var aboutOpens = 0
 
         init(accessibilityTrusted: Bool) {
             self.accessibilityTrusted = accessibilityTrusted
@@ -98,6 +99,17 @@ final class StatusItemControllerTests: XCTestCase {
 
         XCTAssertEqual(fixture.environment.editorOpens, 1)
         XCTAssertEqual(fixture.environment.settingsOpens, 1)
+    }
+
+    /// With no Dock icon and no app menu, the status menu is the only route to an About box —
+    /// the place a Mac user looks to find out what version they are running.
+    func testAboutItemOpensTheAboutPanel() throws {
+        let fixture = makeFixture()
+        defer { fixture.controller.removeFromStatusBar() }
+
+        try perform("About SnapDesk", in: fixture.controller.menu)
+
+        XCTAssertEqual(fixture.environment.aboutOpens, 1)
     }
 
     func testRecentLaunchesTheWorkspaceItPointsAt() throws {
@@ -191,7 +203,7 @@ final class StatusItemControllerTests: XCTestCase {
         let fixture = makeFixture(accessibilityTrusted: true)
         defer { fixture.controller.removeFromStatusBar() }
 
-        for title in ["Capture", "Editor", "Open…", "Settings…", "Relaunch"] {
+        for title in ["Capture", "Editor", "Open…", "About SnapDesk", "Settings…", "Relaunch"] {
             let menuItem = try item(titled: title, in: fixture.controller.menu)
             XCTAssertTrue(fixture.controller.validateMenuItem(menuItem), title)
         }
@@ -212,6 +224,7 @@ final class StatusItemControllerTests: XCTestCase {
             alerting: alerting,
             onEditor: { environment.editorOpens += 1 },
             onSettings: { environment.settingsOpens += 1 },
+            onAbout: { environment.aboutOpens += 1 },
             accessibilityTrusted: { environment.accessibilityTrusted }
         )
         return Fixture(

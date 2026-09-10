@@ -11,6 +11,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     private weak var alerting: (any UserAlerting)?
     private let onEditor: () -> Void
     private let onSettings: () -> Void
+    private let onAbout: () -> Void
     /// Injectable so tests can pin both permission states; the real check hits TCC and the
     /// window server, which a test rig cannot dictate.
     private let accessibilityTrusted: () -> Bool
@@ -33,6 +34,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         alerting: any UserAlerting,
         onEditor: @escaping () -> Void = {},
         onSettings: @escaping () -> Void = {},
+        onAbout: @escaping () -> Void = { AboutPanel.show() },
         accessibilityTrusted: @escaping () -> Bool = { AccessibilityAuth.isEffectivelyTrusted }
     ) {
         self.recents = recents
@@ -41,6 +43,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         self.alerting = alerting
         self.onEditor = onEditor
         self.onSettings = onSettings
+        self.onAbout = onAbout
         self.accessibilityTrusted = accessibilityTrusted
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -98,6 +101,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
         updateAccessibilityRow()
+
+        let about = NSMenuItem(title: "About SnapDesk", action: #selector(openAbout), keyEquivalent: "")
+        about.target = self
+        menu.addItem(about)
 
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
@@ -184,6 +191,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     @objc private func openAccessibilitySettings() {
         AccessibilityAuth.openSystemSettings()
+    }
+
+    @objc private func openAbout() {
+        onAbout()
     }
 
     @objc private func openSettings() {
