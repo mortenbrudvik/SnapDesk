@@ -39,6 +39,18 @@ final class AppSettings: ObservableObject {
         loginItemMessage = Self.message(for: loginItems.status)
     }
 
+    /// Re-reads the service. `SMAppService` is the source of truth and the user can change it in
+    /// System Settings at any time — approve the item, or remove it — while both values here were
+    /// computed once in `init`, so the pane kept asking for an approval already given. Called
+    /// whenever the Settings window comes to the front. Reads only: the `didSet` on
+    /// `launchAtLogin` would otherwise turn mirroring a removal into an `unregister()`.
+    func refresh() {
+        isApplyingLoginItem = true
+        defer { isApplyingLoginItem = false }
+        launchAtLogin = loginItems.status == .enabled
+        loginItemMessage = Self.message(for: loginItems.status)
+    }
+
     private func applyLoginItem() {
         // Swift fires `didSet` for every assignment that goes through the setter, including the
         // rollback below (it is in a method, not lexically inside the observer). Without this

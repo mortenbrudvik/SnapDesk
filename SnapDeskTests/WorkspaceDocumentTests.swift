@@ -206,6 +206,51 @@ final class WorkspaceDocumentTests: XCTestCase {
         expectInvalid(specJSON.replacingOccurrences(of: "\"width\": 800", with: "\"width\": -800"))
     }
 
+    /// Restore matches windows by bundle identifier, so a slot without one can never be filled: it
+    /// burns the whole window timeout and fails. A document that cannot be restored is refused
+    /// on the way in, and the message names the slot.
+    func testAWindowWithoutABundleIdentifierIsRejectedAndNamed() {
+        let unidentified = specJSON.replacingOccurrences(
+            of: "\"bundleIdentifier\": \"com.apple.Safari\"",
+            with: "\"bundleIdentifier\": \"\""
+        )
+        XCTAssertThrowsError(try WorkspaceDocument.decode(Data(unidentified.utf8))) { error in
+            guard case .corrupt(.invalid(let reason))? = error as? WorkspaceDocumentError else {
+                return XCTFail("expected .corrupt(.invalid), got \(error)")
+            }
+            XCTAssertTrue(reason.contains("Safari"), "the message must name the slot: \(reason)")
+            XCTAssertTrue(reason.contains("bundle identifier"), reason)
+        }
+    }
+
+    /// Displays are bounded to a range a screen could plausibly occupy; windows were only checked
+    /// for finiteness, so a legal-JSON `1e300` reached the frame arithmetic. The same bound holds
+    /// for both.
+    func testAnAbsurdWindowCoordinateIsRejected() {
+        // `"x": 0,` appears in both display rectangles as well, and those were already bounded —
+        // so the edit has to name the window's own field, or the test passes on the old rule.
+        for json in [
+            specJSON.replacingOccurrences(of: "\"width\": 800", with: "\"width\": 1e300"),
+            specJSON.replacingOccurrences(of: "\"height\": 900", with: "\"height\": 1e300"),
+        ] {
+            XCTAssertThrowsError(try WorkspaceDocument.decode(Data(json.utf8))) { error in
+                guard case .corrupt(.invalid(let reason))? = error as? WorkspaceDocumentError else {
+                    return XCTFail("expected .corrupt(.invalid), got \(error)")
+                }
+                XCTAssertTrue(reason.contains("window \"Safari\""), "the window is the offender: \(reason)")
+            }
+        }
+    }
+
+    /// `validated()` is the only way to a `ValidatedWorkspace`, and it is the same check.
+    func testValidatedWrapsADocumentThatPassesAndThrowsForOneThatDoesNot() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        XCTAssertEqual(try document.validated().document, document)
+
+        document.windows[0].width = 0
+        XCTAssertThrowsError(try document.validated())
+    }
+
     func testZeroDisplayScaleIsRejected() {
         expectInvalid(specJSON.replacingOccurrences(of: "\"scale\": 2", with: "\"scale\": 0"))
     }

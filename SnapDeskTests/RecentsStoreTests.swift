@@ -87,6 +87,40 @@ final class RecentsStoreTests: XCTestCase {
         )
     }
 
+    /// Two entries can resolve to the same file — one deleted and another renamed into its place —
+    /// and `add` dedupes but `load` did not, so the sidebar got two rows with the same identity.
+    func testLoadDedupesEntriesThatResolveToTheSameFileAndWritesTheTrimBack() throws {
+        let defaults = scratchDefaults()
+        let url = try makeTempFile(named: "twice")
+        defaults.set([url.path, url.path], forKey: "recentsPaths")
+
+        let store = RecentsStore(defaults: defaults)
+
+        XCTAssertEqual(store.urls.count, 1)
+        XCTAssertEqual(defaults.array(forKey: "recentsPaths") as? [String], [url.path])
+    }
+
+    /// The bookmark exists so a renamed file keeps resolving; the path is only the fallback.
+    func testARenamedFileIsStillFoundThroughItsBookmark() throws {
+        let defaults = scratchDefaults()
+        let original = try makeTempFile(named: "before")
+        let renamed = original.deletingLastPathComponent()
+            .appendingPathComponent("after-\(UUID().uuidString).snapdesk")
+        addTeardownBlock { try? FileManager.default.removeItem(at: renamed) }
+        let store = RecentsStore(defaults: defaults)
+        store.add(original)
+
+        try FileManager.default.moveItem(at: original, to: renamed)
+        let reloaded = RecentsStore(defaults: defaults)
+
+        XCTAssertEqual(reloaded.urls.map { $0.resolvingSymlinksInPath().path }, [renamed.resolvingSymlinksInPath().path])
+        XCTAssertEqual(
+            (defaults.array(forKey: "recentsPaths") as? [String])?.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path },
+            [renamed.resolvingSymlinksInPath().path],
+            "the path fallback is rewritten to where the file is now"
+        )
+    }
+
     func testMissingFilesRemainListed() throws {
         let defaults = scratchDefaults()
         let url = try makeTempFile(named: "gone")

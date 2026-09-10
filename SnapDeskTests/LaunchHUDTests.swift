@@ -26,9 +26,12 @@ final class LaunchHUDTests: XCTestCase {
         var count = 0
     }
 
+    /// The HUD is a floating panel that joins every Space, so one left visible sits over whatever
+    /// the developer is doing for the rest of the run.
     private func makeHUD(delay: FakeDelay = FakeDelay()) -> (LaunchHUDController, FakeDelay, BeepCounter) {
         let beeps = BeepCounter()
         let hud = LaunchHUDController(delay: delay, beep: { beeps.count += 1 })
+        addTeardownBlock { @MainActor in hud.panel.orderOut(nil) }
         return (hud, delay, beeps)
     }
 
@@ -41,8 +44,8 @@ final class LaunchHUDTests: XCTestCase {
 
     private func placedSlots() -> [SlotProgress] {
         [
-            SlotProgress(index: 0, name: "Safari", status: .placed),
-            SlotProgress(index: 1, name: "Preview", status: .placed),
+            SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
+            SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
         ]
     }
 
@@ -53,7 +56,7 @@ final class LaunchHUDTests: XCTestCase {
 
         XCTAssertTrue(hud.isVisible)
         XCTAssertEqual(hud.rows.map(\.name), ["Safari", "Preview"])
-        XCTAssertEqual(hud.rows.map(\.status), ["Launching", "Launching"])
+        XCTAssertEqual(hud.rows.map(\.text), ["Launching", "Launching"])
         XCTAssertNil(delay.pending)
     }
 
@@ -117,14 +120,24 @@ final class LaunchHUDTests: XCTestCase {
             SlotProgress(index: 0, name: "Safari", status: .pending),
             SlotProgress(index: 1, name: "Preview", status: .launching),
             SlotProgress(index: 2, name: "Notes", status: .matched),
-            SlotProgress(index: 3, name: "Music", status: .placed),
+            SlotProgress(index: 3, name: "Music", status: .placed(.clean)),
             SlotProgress(index: 4, name: "Terminal", status: .cancelled),
             SlotProgress(index: 5, name: "Mail", status: .failed(.appNotFound)),
+            SlotProgress(index: 6, name: "Xcode", status: .placed(PlacementNote(isGuess: true, substituteDisplay: nil))),
+            SlotProgress(index: 7, name: "Slack", status: .placed(PlacementNote(isGuess: false, substituteDisplay: "LG UltraFine"))),
+            SlotProgress(index: 8, name: "Finder", status: .placed(PlacementNote(isGuess: true, substituteDisplay: "LG UltraFine"))),
+            SlotProgress(index: 9, name: "Pages", status: .failed(.stateNotRestored)),
+            SlotProgress(index: 10, name: "Numbers", status: .failed(.windowGone)),
+            SlotProgress(index: 11, name: "Keynote", status: .failed(.windowsUnreadable)),
         ])
 
         XCTAssertEqual(
-            hud.rows.map(\.status),
-            ["Pending", "Launching", "Ready", "Placed", "Cancelled", "Failed: App not found"]
+            hud.rows.map(\.text),
+            [
+                "Pending", "Launching", "Ready", "Placed", "Cancelled", "Failed: App not found",
+                "Placed (other window)", "Placed on LG UltraFine", "Placed on LG UltraFine (other window)",
+                "Failed: Zoom or minimize failed", "Failed: Window disappeared", "Failed: Could not read windows",
+            ]
         )
     }
 
@@ -136,7 +149,7 @@ final class LaunchHUDTests: XCTestCase {
         let (hud, _, _) = makeHUD()
 
         hud.update([
-            SlotProgress(index: 0, name: "Safari", status: .placed),
+            SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
             SlotProgress(index: 1, name: "Preview", status: .cancelled),
             SlotProgress(index: 2, name: "Notes", status: .failed(.noWindow)),
         ])
@@ -193,11 +206,51 @@ final class LaunchHUDTests: XCTestCase {
 
         hud.update([
             SlotProgress(index: 0, name: "Safari", status: .failed(.couldNotPosition)),
-            SlotProgress(index: 1, name: "Preview", status: .placed),
+            SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
         ])
 
         XCTAssertNil(delay.pending)
         XCTAssertTrue(hud.isVisible)
+    }
+
+    /// A slot that settled for a window it is not named after, or landed on a substitute screen,
+    /// is not a *failure* — so the HUD counted it as a clean run and dismissed itself after 600ms,
+    /// which is the one thing that makes the note worth carrying pointless. Worse, the correction
+    /// pass runs for four seconds after that and would update a HUD the user can no longer see.
+    func testAPlacementThatGuessedOrSubstitutedStaysOnScreen() {
+        for note in [
+            PlacementNote(isGuess: true, substituteDisplay: nil),
+            PlacementNote(isGuess: false, substituteDisplay: "LG UltraFine"),
+        ] {
+            let (hud, delay, beeps) = makeHUD()
+            hud.update(launchingSlots())
+
+            hud.update([
+                SlotProgress(index: 0, name: "Safari", status: .placed(note)),
+                SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
+            ])
+
+            XCTAssertNil(delay.pending, "\(note) must not auto-dismiss")
+            XCTAssertTrue(hud.isVisible)
+            XCTAssertEqual(beeps.count, 0, "a guess is not a failure: it must not beep")
+        }
+    }
+
+    /// And a correction that clears the note lets the HUD go: there is nothing left to explain.
+    func testAHUDDismissesOnceACorrectionClearsTheGuess() {
+        let (hud, delay, _) = makeHUD()
+        hud.update(launchingSlots())
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .placed(PlacementNote(isGuess: true, substituteDisplay: nil))),
+            SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
+        ])
+        XCTAssertNil(delay.pending)
+
+        hud.update(placedSlots())
+
+        XCTAssertEqual(delay.duration, .milliseconds(600))
+        delay.fire()
+        XCTAssertFalse(hud.isVisible)
     }
 
     func testEverySlotFailedStaysOnScreen() {
@@ -304,6 +357,37 @@ final class LaunchHUDTests: XCTestCase {
 
     /// A restore can go terminal and then report more work — a queued slot, a retry. The dismiss
     /// scheduled by the earlier snapshot must not fire against the newer one.
+    /// `try?` around the sleep swallowed the cancellation and ran the work anyway — instantly,
+    /// since a cancelled sleep returns at once. The auto-dismiss would then hide a HUD that by
+    /// then belongs to a different restore.
+    func testACancelledDelayDoesNotRunItsWork() async {
+        let delay = MainActorDelay()
+        let ran = Flag()
+
+        delay.run(after: .seconds(60)) { ran.value = true }
+        let pending = try? XCTUnwrap(delay.pending)
+        pending?.cancel()
+        await pending?.value
+
+        XCTAssertFalse(ran.value)
+    }
+
+    /// And an uncancelled one still runs, or the auto-dismiss would never fire at all.
+    func testADelayThatIsNotCancelledRunsItsWork() async {
+        let delay = MainActorDelay()
+        let ran = Flag()
+
+        delay.run(after: .milliseconds(1)) { ran.value = true }
+        await delay.pending?.value
+
+        XCTAssertTrue(ran.value)
+    }
+
+    @MainActor
+    private final class Flag {
+        var value = false
+    }
+
     func testNewerProgressCancelsAScheduledAutoDismiss() {
         let (hud, delay, _) = makeHUD()
         hud.update(launchingSlots())
@@ -311,7 +395,7 @@ final class LaunchHUDTests: XCTestCase {
         XCTAssertNotNil(delay.pending)
 
         hud.update([
-            SlotProgress(index: 0, name: "Safari", status: .placed),
+            SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
             SlotProgress(index: 1, name: "Preview", status: .launching),
         ])
 

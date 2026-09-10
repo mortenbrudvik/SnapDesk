@@ -19,6 +19,11 @@ enum FramePlacement {
         )
     }
 
+    /// The saved frame put back on the display it is being restored to. A visible frame within a
+    /// point of the saved one is the same screen and the frame is used verbatim; anything else is
+    /// scaled proportionally in each axis, so a workspace captured on a 4K display comes back in
+    /// proportion on a laptop instead of half off the screen. `max(_, 1)` guards the divisor: a
+    /// saved visible frame of zero reaches this from a hand-edited file.
     static func restore(relative: CGRect, savedVisible: CGRect, liveVisible: CGRect) -> CGRect {
         let sizeMatches =
             abs(savedVisible.width - liveVisible.width) <= 1

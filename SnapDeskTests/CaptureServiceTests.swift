@@ -73,7 +73,7 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [display])
         )
 
-        let doc = service.capture(name: "Coding")
+        let doc = service.capture(name: "Coding").document
 
         XCTAssertEqual(doc.version, WorkspaceDocument.currentVersion)
         XCTAssertEqual(doc.name, "Coding")
@@ -141,7 +141,7 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [left, right])
         )
 
-        let doc = service.capture()
+        let doc = service.capture().document
 
         XCTAssertEqual(doc.windows.count, 1)
         XCTAssertEqual(doc.windows[0].displayId, right.id)
@@ -164,7 +164,7 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [display])
         )
 
-        let doc = service.capture()
+        let doc = service.capture().document
 
         XCTAssertEqual(doc.name, "Untitled")
         XCTAssertEqual(doc.windows, [])
@@ -193,7 +193,7 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [display, secondary])
         )
 
-        let doc = service.capture()
+        let doc = service.capture().document
 
         XCTAssertEqual(doc.windows.count, 1)
         XCTAssertEqual(doc.windows[0].displayId, display.id)
@@ -217,7 +217,7 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [])
         )
 
-        let doc = service.capture()
+        let doc = service.capture().document
 
         XCTAssertEqual(doc.displays, [])
         XCTAssertEqual(doc.windows, [])
@@ -245,36 +245,127 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [mirror, display])
         )
 
-        let doc = service.capture()
+        let doc = service.capture().document
 
         XCTAssertEqual(doc.windows.count, 1)
         XCTAssertEqual(doc.windows[0].displayId, mirror.id)
     }
 
-    /// Zoom is the one window attribute capture infers rather than reads, and it has to be
-    /// inferred against the display list this capture records. Reading `NSScreen` inside the
-    /// per-window read instead answers from a second snapshot of the screens — one that can
-    /// disagree with the displays saved beside the window, and that no test can drive.
-    func testTheDisplayListCaptureRecordsIsWhatTheWindowReadIsGiven() {
-        let ax = FakeAX(windowsByPid: [
-            safari.pid: [
-                snapshot(
-                    cgWindowID: 10,
-                    title: "GitHub",
-                    cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300)
-                ),
-            ],
-        ])
+    /// Zoom is the one window attribute capture infers rather than reads, and it is inferred
+    /// against the display list this capture records — from the very frame saved beside it — so
+    /// the two cannot disagree. A second `NSScreen` snapshot taken inside the per-window read
+    /// could, and no test could drive it.
+    func testZoomIsInferredAgainstTheDisplaysTheCaptureRecords() {
+        let filling = snapshot(cgWindowID: 10, title: "Filling", cocoaFrame: display.visibleFrame)
         let service = CaptureService(
             apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [filling]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.map(\.zoomed), [true])
+        XCTAssertEqual(doc.windows.map(\.minimized), [false])
+    }
+
+    // MARK: What could not be read
+
+    /// The failure this whole report exists for: an app that is busy when the hotkey fires does
+    /// not answer within the AX timeout, and used to simply vanish from the workspace — the
+    /// document looked complete, and every later restore lacked the app.
+    func testAnAppWhoseWindowListCannotBeReadIsReportedRatherThanSilentlyDropped() {
+        let xcode = RunningAppInfo(
+            pid: 3,
+            bundleIdentifier: "com.apple.dt.Xcode",
+            bundlePath: "/Applications/Xcode.app",
+            name: "Xcode",
+            activationPolicyIsRegular: true,
+            isSnapDesk: false
+        )
+        let ax = FakeAX(windowsByPid: [
+            safari.pid: [snapshot(cgWindowID: 10, title: "GitHub", cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300))],
+        ])
+        ax.failingPids = [xcode.pid]
+        let service = CaptureService(
+            apps: FakeApps(running: [safari, xcode]),
             ax: ax,
             order: FakeOrder(ids: [10]),
             displays: FakeDisplays(live: [display])
         )
 
-        _ = service.capture()
+        let outcome = service.capture()
 
-        XCTAssertEqual(ax.displaysPerCall, [[display]])
+        XCTAssertEqual(outcome.document.windows.map(\.title), ["GitHub"])
+        XCTAssertEqual(outcome.report.unreadableApps, ["Xcode"])
+        XCTAssertFalse(outcome.report.isClean)
+        let explanation = try? XCTUnwrap(outcome.report.explanation)
+        XCTAssertTrue(explanation?.contains("Xcode") == true, "the explanation must name the app: \(explanation ?? "nil")")
+    }
+
+    /// A failed read of the frame or the minimized state disqualifies the window — a wrong value
+    /// would go to disk — but the user has to hear that a window is missing.
+    func testAWindowWhoseFrameOrMinimizedStateCannotBeReadIsSkippedAndCounted() {
+        let readable = snapshot(cgWindowID: 10, title: "GitHub", cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300))
+        let unreadableState = snapshot(cgWindowID: 11, title: "Apple", cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600), minimized: nil)
+        let unreadableFrame = snapshot(cgWindowID: 12, title: "Docs", cocoaFrame: nil)
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [readable, unreadableState, unreadableFrame]]),
+            order: FakeOrder(ids: [10, 11, 12]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let outcome = service.capture()
+
+        XCTAssertEqual(outcome.document.windows.map(\.title), ["GitHub"])
+        XCTAssertEqual(outcome.report.skippedWindows, ["Safari": 2])
+        XCTAssertTrue(outcome.report.explanation?.contains("2 windows of Safari") == true, outcome.report.explanation ?? "nil")
+    }
+
+    /// Restore matches windows by bundle identifier, so a slot saved with an empty one can never be
+    /// filled: it burns the whole window timeout and fails. Better not to write it at all.
+    func testAnAppWithoutABundleIdentifierIsSkippedAndReported() {
+        let unidentified = RunningAppInfo(
+            pid: 4,
+            bundleIdentifier: "",
+            bundlePath: "/Users/me/Build/Scratch.app",
+            name: "Scratch",
+            activationPolicyIsRegular: true,
+            isSnapDesk: false
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [unidentified]),
+            ax: FakeAX(windowsByPid: [
+                unidentified.pid: [snapshot(cgWindowID: 40, title: "Scratch", cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300))],
+            ]),
+            order: FakeOrder(ids: [40]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let outcome = service.capture()
+
+        XCTAssertEqual(outcome.document.windows, [])
+        XCTAssertEqual(outcome.report.unidentifiedApps, ["Scratch"])
+        XCTAssertTrue(outcome.report.explanation?.contains("Scratch") == true)
+    }
+
+    func testACaptureThatReadEverythingReportsNothing() {
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [
+                safari.pid: [snapshot(cgWindowID: 10, title: "GitHub", cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300))],
+            ]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let outcome = service.capture()
+
+        XCTAssertEqual(outcome.report, .clean)
+        XCTAssertTrue(outcome.report.isClean)
+        XCTAssertNil(outcome.report.explanation)
     }
 
     /// The inference behind `SavedWindow.zoomed`, on its own: a window filling the visible frame
@@ -337,7 +428,7 @@ final class CaptureServiceTests: XCTestCase {
             displays: FakeDisplays(live: [display])
         )
 
-        let doc = service.capture(name: "Degenerate")
+        let doc = service.capture(name: "Degenerate").document
 
         XCTAssertNoThrow(try doc.validate(), "a captured document must always be one the user can save")
         for window in doc.windows {
@@ -354,20 +445,17 @@ final class CaptureServiceTests: XCTestCase {
     private func snapshot(
         cgWindowID: UInt32?,
         title: String,
-        role: String = "AXWindow",
         subrole: String? = nil,
-        cocoaFrame: CGRect,
-        minimized: Bool = false,
-        zoomed: Bool = false
+        cocoaFrame: CGRect?,
+        minimized: Bool? = false
     ) -> AXWindowSnapshot {
         AXWindowSnapshot(
             cgWindowID: cgWindowID,
             title: title,
-            role: role,
             subrole: subrole,
             cocoaFrame: cocoaFrame,
             minimized: minimized,
-            zoomed: zoomed
+            hasTitleBarButtons: true
         )
     }
 
@@ -387,18 +475,20 @@ private struct FakeApps: RunningAppSourcing {
     func apps() -> [RunningAppInfo] { running }
 }
 
-/// A class, not a struct, so a test can read back what the capture handed it.
 @MainActor
 private final class FakeAX: AXCapturing {
     private let windowsByPid: [pid_t: [AXWindowSnapshot]]
-    private(set) var displaysPerCall: [[LiveDisplay]] = []
+    /// Apps whose window list cannot be read at all — the beachballing app, in the real thing.
+    var failingPids: Set<pid_t> = []
 
     init(windowsByPid: [pid_t: [AXWindowSnapshot]]) {
         self.windowsByPid = windowsByPid
     }
 
-    func snapshot(pid: pid_t, displays: [LiveDisplay]) -> [AXWindowSnapshot] {
-        displaysPerCall.append(displays)
+    func windows(pid: pid_t) throws -> [AXWindowSnapshot] {
+        if failingPids.contains(pid) {
+            throw AXWindowListError(code: .cannotComplete)
+        }
         return windowsByPid[pid] ?? []
     }
 }

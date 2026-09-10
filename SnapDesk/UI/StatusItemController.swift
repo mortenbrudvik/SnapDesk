@@ -163,7 +163,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [UTType("com.brudvik.snapdesk") ?? .json]
+        panel.allowedContentTypes = [WorkspaceFileType.contentType]
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
             launching?.launch(url: url)
@@ -173,7 +173,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     @objc private func openRecent(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         guard FileManager.default.fileExists(atPath: url.path) else {
-            alerting?.show(message: "File not found")
+            alerting?.show(
+                title: WorkspaceOpener.openFailureTitle(for: url),
+                detail: WorkspaceOpener.missingFileDetail
+            )
             return
         }
         launching?.launch(url: url)

@@ -126,6 +126,54 @@ enum WorkspaceDocumentError: LocalizedError {
     var errorDescription: String? {
         message
     }
+
+    /// The cause underneath `message`, for an alert's second line: what the file system said, or
+    /// which key the decoder tripped on and where. Nil when the message already says everything.
+    var detail: String? {
+        switch self {
+        case .unsupportedVersion:
+            return nil
+        case .corrupt(.unreadable(let error)):
+            return error.localizedDescription
+        case .corrupt(.malformed(let error)):
+            return Self.describe(decoding: error)
+        case .corrupt(.invalid):
+            return nil
+        }
+    }
+
+    private static func describe(decoding error: any Error) -> String {
+        guard let decodingError = error as? DecodingError else { return error.localizedDescription }
+        func location(_ context: DecodingError.Context) -> String {
+            let path = context.codingPath
+                .map { $0.intValue.map { "[\($0)]" } ?? $0.stringValue }
+                .joined(separator: ".")
+                .replacingOccurrences(of: ".[", with: "[")
+            return path.isEmpty ? "" : " at \(path)"
+        }
+        switch decodingError {
+        case .keyNotFound(let key, let context):
+            return "“\(key.stringValue)” is missing\(location(context))."
+        case .typeMismatch(_, let context), .valueNotFound(_, let context):
+            return "\(context.debugDescription)\(location(context))"
+        case .dataCorrupted(let context):
+            return context.debugDescription
+        @unknown default:
+            return error.localizedDescription
+        }
+    }
+}
+
+/// A document that has passed `WorkspaceDocument.validate()`. The initialiser is private to this
+/// file so the type is a proof, not a label: `LaunchService.launch` takes one, and the only way to
+/// get one is `WorkspaceDocument.validated()`. Before this, validation on the editor's in-memory
+/// launch path was a convention — one call in `AppDelegate` that nothing made a caller keep.
+struct ValidatedWorkspace: Equatable, Sendable {
+    let document: WorkspaceDocument
+
+    fileprivate init(document: WorkspaceDocument) {
+        self.document = document
+    }
 }
 
 struct WorkspaceDocument: Codable, Equatable, Sendable {
@@ -220,8 +268,9 @@ struct WorkspaceDocument: Codable, Equatable, Sendable {
     /// through `decode`, because the editor's in-memory launch reaches `AXWindow` with no file in
     /// between.
     ///
-    /// A window's empty `displayId` is tolerated rather than legitimate: this build's capture skips
-    /// a window it cannot record against a display, but earlier builds wrote `""` for one, and
+    /// A window's empty `displayId` is tolerated rather than legitimate: this build's capture only
+    /// leaves a window out when no display is attached at all (one merely parked off every screen
+    /// is recorded against the primary), but earlier builds wrote `""` for one, and
     /// `DisplayMap.resolve` falls back to the main display for it, so such a file still opens. An
     /// empty *display* id is the same vintage but is rewritten before this runs
     /// (`migratingEmptyDisplayIds`), so hitting it here means a document assembled in memory.
@@ -252,7 +301,14 @@ struct WorkspaceDocument: Codable, Equatable, Sendable {
         }
 
         for window in windows {
-            guard window.x.isFinite, window.y.isFinite, window.width.isFinite, window.height.isFinite else {
+            // Restore matches windows by bundle identifier, so a slot without one could never be
+            // filled: it would burn the whole window timeout and fail. Capture never writes one
+            // (it skips and reports such an app); a hand-edited file is refused here.
+            guard !window.bundleIdentifier.isEmpty else {
+                throw reject("window \"\(window.name)\" has no bundle identifier")
+            }
+            let frame = CodableRect(x: window.x, y: window.y, width: window.width, height: window.height)
+            guard frame.isUsableGeometry else {
                 throw reject("window \"\(window.name)\" has a frame that is not a usable rectangle")
             }
             guard window.width > 0, window.height > 0 else {
@@ -262,6 +318,15 @@ struct WorkspaceDocument: Codable, Equatable, Sendable {
                 throw reject("window \"\(window.name)\" names display \"\(window.displayId)\", which the file does not describe")
             }
         }
+    }
+
+    /// The same check as `validate()`, as a value: the only way to obtain a `ValidatedWorkspace`,
+    /// which is what restore takes, so a document can never reach the placement code — with a
+    /// negative size or a window naming a display the file does not describe — without having
+    /// been through it.
+    func validated() throws -> ValidatedWorkspace {
+        try validate()
+        return ValidatedWorkspace(document: self)
     }
 
     /// Validates first: without it the editor can write a file `decode` then refuses, handing the

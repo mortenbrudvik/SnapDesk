@@ -27,9 +27,26 @@ final class CaptureFilterTests: XCTestCase {
         XCTAssertTrue(CaptureFilter.isEligible(c))
     }
 
-    func testMinimizedEligible() {
-        let c = candidate(isMinimized: true)
-        XCTAssertTrue(CaptureFilter.isEligible(c))
+    func testUnknownSubroleSkipped() {
+        XCTAssertFalse(CaptureFilter.isEligible(candidate(subrole: "AXUnknown")))
+    }
+
+    func testSystemDialogSkipped() {
+        XCTAssertFalse(CaptureFilter.isEligible(candidate(subrole: "AXSystemDialog")))
+    }
+
+    /// Sheets and dialogs are kept: `AXWindow.init?` is the role guard, and the subrole list
+    /// above is an exclusion list, not an allow list.
+    func testSheetsAndDialogsAreEligible() {
+        XCTAssertTrue(CaptureFilter.isEligible(candidate(subrole: "AXSheet")))
+        XCTAssertTrue(CaptureFilter.isEligible(candidate(subrole: "AXDialog")))
+    }
+
+    /// The floor is 8pt on each side, inclusive: an 8x8 window is the smallest thing kept.
+    func testTheSizeFloorIsEightPointsInclusive() {
+        XCTAssertTrue(CaptureFilter.isEligible(candidate(frame: CGRect(x: 0, y: 0, width: 8, height: 8))))
+        XCTAssertFalse(CaptureFilter.isEligible(candidate(frame: CGRect(x: 0, y: 0, width: 7, height: 8))))
+        XCTAssertFalse(CaptureFilter.isEligible(candidate(frame: CGRect(x: 0, y: 0, width: 8, height: 7))))
     }
 
     // MARK: Chromeless standard windows (Open/Save panels)
@@ -68,23 +85,17 @@ final class CaptureFilterTests: XCTestCase {
     }
 
     private func candidate(
-        role: String = "AXWindow",
         subrole: String? = nil,
         frame: CGRect = CGRect(x: 0, y: 0, width: 100, height: 100),
         isSnapDesk: Bool = false,
         activationPolicyIsRegular: Bool = true,
-        isMinimized: Bool = false,
         hasTitleBarButtons: Bool = true
     ) -> CaptureCandidate {
         CaptureCandidate(
-            bundleIdentifier: "com.example.App",
-            role: role,
             subrole: subrole,
             frame: frame,
             isSnapDesk: isSnapDesk,
             activationPolicyIsRegular: activationPolicyIsRegular,
-            isMinimized: isMinimized,
-            cgWindowID: 1,
             hasTitleBarButtons: hasTitleBarButtons
         )
     }

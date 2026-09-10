@@ -1,26 +1,30 @@
 import Foundation
 
+/// What restore does for one slot before it starts looking for windows. `reuse` is a slot whose
+/// app is already running, or whose group launched on an earlier slot; `launch` opens the app,
+/// as a fresh instance or not.
 enum LaunchAction: Equatable {
-    case launch(bundleIdentifier: String, path: String, arguments: [String], newInstance: Bool)
+    case launch(arguments: [String], newInstance: Bool)
     case reuse
 }
 
-struct SlotPlan: Equatable {
-    var index: Int
-    var action: LaunchAction
-}
-
 enum LaunchPlanner {
+    /// One action per slot, in slot order. Slots are grouped by bundle identifier, and the rule
+    /// is decided per group from its first slot: under `moveExistingWindows` — or for an app whose
+    /// Info.plist sets `LSMultipleInstancesProhibited`, which forces that mode — a running app is
+    /// reused, and only the group's first slot launches at all (as the existing instance, so
+    /// later slots reuse it); otherwise every slot launches a new instance of its own. The
+    /// arguments are the slot's own, tokenised.
     static func plan(
         document: WorkspaceDocument,
         runningBundleIDs: Set<String>,
         prohibitsMultipleInstances: (String, String) -> Bool = { _, _ in false }
-    ) -> [SlotPlan] {
+    ) -> [LaunchAction] {
         let windows = document.windows
         var groupOrder: [String] = []
         var groupIndices: [String: [Int]] = [:]
         for (index, window) in windows.enumerated() {
-            let key = groupKey(for: window)
+            let key = window.bundleIdentifier
             if groupIndices[key] == nil {
                 groupOrder.append(key)
                 groupIndices[key] = []
@@ -28,7 +32,7 @@ enum LaunchPlanner {
             groupIndices[key]!.append(index)
         }
 
-        var plans = Array(repeating: SlotPlan(index: 0, action: .reuse), count: windows.count)
+        var actions = Array(repeating: LaunchAction.reuse, count: windows.count)
         for key in groupOrder {
             let indices = groupIndices[key]!
             let first = windows[indices[0]]
@@ -39,32 +43,22 @@ enum LaunchPlanner {
                 let window = windows[index]
                 if moveExisting {
                     if isRunning || offset > 0 {
-                        plans[index] = SlotPlan(index: index, action: .reuse)
+                        actions[index] = .reuse
                     } else {
-                        plans[index] = SlotPlan(
-                            index: index,
-                            action: .launch(
-                                bundleIdentifier: window.bundleIdentifier,
-                                path: window.bundlePath,
-                                arguments: ArgumentTokenizer.tokenize(window.arguments),
-                                newInstance: false
-                            )
+                        actions[index] = .launch(
+                            arguments: ArgumentTokenizer.tokenize(window.arguments),
+                            newInstance: false
                         )
                     }
                 } else {
-                    plans[index] = SlotPlan(
-                        index: index,
-                        action: .launch(
-                            bundleIdentifier: window.bundleIdentifier,
-                            path: window.bundlePath,
-                            arguments: ArgumentTokenizer.tokenize(window.arguments),
-                            newInstance: true
-                        )
+                    actions[index] = .launch(
+                        arguments: ArgumentTokenizer.tokenize(window.arguments),
+                        newInstance: true
                     )
                 }
             }
         }
-        return plans
+        return actions
     }
 
     /// Descending on purpose. Placing a window raises it, so walking the slots back-to-front
@@ -77,12 +71,5 @@ enum LaunchPlanner {
     static func placeOrder(windowCount: Int) -> [Int] {
         guard windowCount > 0 else { return [] }
         return Array((0..<windowCount).reversed())
-    }
-
-    private static func groupKey(for window: SavedWindow) -> String {
-        if window.bundleIdentifier.isEmpty {
-            return "path:\(window.bundlePath)"
-        }
-        return "id:\(window.bundleIdentifier)"
     }
 }

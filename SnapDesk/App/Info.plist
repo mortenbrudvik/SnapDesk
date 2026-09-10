@@ -43,7 +43,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>com.brudvik.snapdesk</string>
+				<string>com.brudvik.snapdesk.workspace</string>
 			</array>
 		</dict>
 	</array>
@@ -51,7 +51,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.brudvik.snapdesk</string>
+			<string>com.brudvik.snapdesk.workspace</string>
 			<key>UTTypeDescription</key>
 			<string>SnapDesk Workspace</string>
 			<key>UTTypeConformsTo</key>

@@ -9,8 +9,27 @@ enum SlotFailure: Equatable, Sendable {
     case appNotFound
     case launchFailed
     case launchTimedOut
+    /// The app never vended a window this slot could take.
     case noWindow
+    /// Every window the app has belongs to an instance that was already running, and this restore
+    /// asked for a new one. Plenty of apps ignore `createsNewApplicationInstance` and simply
+    /// activate the copy that is open — reported apart from `.noWindow`, which for an app with six
+    /// windows on screen sends the user looking for a bug that is not there.
+    case noNewWindow
+    /// No display is attached at all, so there is no frame to compute.
+    case noDisplay
+    /// The app's window list could not be read on any poll — it never answered within the AX
+    /// timeout, or Accessibility refused — which is not the same as it having no windows.
+    case windowsUnreadable
+    /// The window the slot claimed was gone by the time it came to be placed: closed, or retitled
+    /// since the claim under the title-based fallback identity.
+    case windowGone
+    /// A write the placement depends on was refused, or the window never left the Dock.
     case couldNotPosition
+    /// The frame was written and the window sits on it; only the saved zoom or minimize did not
+    /// take. Reported apart from `couldNotPosition` because the user would otherwise go looking
+    /// for a window that is exactly where they saved it.
+    case stateNotRestored
 
     var displayText: String {
         switch self {
@@ -22,10 +41,33 @@ enum SlotFailure: Equatable, Sendable {
             return "Launch timed out"
         case .noWindow:
             return "No window"
+        case .noNewWindow:
+            return "No new window"
+        case .noDisplay:
+            return "No display attached"
+        case .windowsUnreadable:
+            return "Could not read windows"
+        case .windowGone:
+            return "Window disappeared"
         case .couldNotPosition:
             return "Could not position"
+        case .stateNotRestored:
+            return "Zoom or minimize failed"
         }
     }
+}
+
+/// What a "Placed" has to be qualified with. A restore that guessed, or that aimed at a
+/// substitute screen, still reports every slot placed — and used to say nothing more, so a layout
+/// that came back "wrong" had no explanation anywhere.
+struct PlacementNote: Equatable, Sendable {
+    /// The slot holds a window it is not named after: a leftover it settled for while its own
+    /// window had not vended, and that the correction pass has not (yet) replaced.
+    var isGuess = false
+    /// The display the window went to, when the one it was captured on is not attached.
+    var substituteDisplay: String? = nil
+
+    static let clean = PlacementNote()
 }
 
 enum SlotStatus: Equatable, Sendable {
@@ -35,7 +77,7 @@ enum SlotStatus: Equatable, Sendable {
     /// until every slot has had its turn at claiming. Without this the HUD shows "Launching" for
     /// slots that are long since resolved while one slow app runs out the window timeout.
     case matched
-    case placed
+    case placed(PlacementNote)
     /// The user stopped the restore. Deliberately *not* a `SlotFailure`: nothing went wrong, so
     /// this must not beep, must not pin the HUD open, and must not be logged as a failure.
     case cancelled
@@ -44,6 +86,39 @@ enum SlotStatus: Equatable, Sendable {
     var failure: SlotFailure? {
         guard case .failed(let reason) = self else { return nil }
         return reason
+    }
+
+    var isPlaced: Bool {
+        guard case .placed = self else { return false }
+        return true
+    }
+}
+
+/// How one placement ended, from the seam the service drives. A `Bool` here collapsed three
+/// different things into "Could not position": a window that vanished, a write that was refused,
+/// and a window that sits on its saved frame but would not zoom or minimize.
+enum PlacementOutcome: Equatable, Sendable {
+    case placed
+    /// The frame is applied; the saved zoom or minimize is not.
+    case stateNotRestored
+    /// The window is no longer listed for its app: closed, or retitled under the title-based
+    /// fallback identity since it was claimed.
+    case windowGone
+    /// The app's window list could not be read at all, so whether the window is still there is
+    /// not known — which is a different thing from knowing that it is gone.
+    case windowsUnreadable
+    /// A write the placement depends on was refused, or the window never left the Dock.
+    case refused
+
+    /// The slot failure this outcome reports as; nil for a clean placement.
+    var slotFailure: SlotFailure? {
+        switch self {
+        case .placed: return nil
+        case .stateNotRestored: return .stateNotRestored
+        case .windowGone: return .windowGone
+        case .windowsUnreadable: return .windowsUnreadable
+        case .refused: return .couldNotPosition
+        }
     }
 }
 
@@ -69,8 +144,14 @@ protocol ApplicationLaunching: Sendable {
 @MainActor
 protocol RunningApplicationQuerying {
     func runningBundleIDs() -> Set<String>
+    /// Every process running under the bundle identifier right now. Read before a new-instance
+    /// launch, so the windows of those processes can be told from the new instance's.
+    func runningPIDs(bundleIdentifier: String) -> Set<pid_t>
     func unhide(bundleIdentifier: String)
-    func activate(bundleIdentifier: String)
+    /// Brings the app forward — the process `pid` when it is one of the bundle's, else whichever
+    /// process runs under the bundle identifier. A restore that launched a second instance means
+    /// the one holding the restored window, not the one the user already had open.
+    func activate(bundleIdentifier: String, pid: pid_t?)
 }
 
 /// A plain read, with no waiting of its own: an app vends its windows over the seconds after it
@@ -79,18 +160,25 @@ protocol RunningApplicationQuerying {
 /// how many windows the workspace is still expecting and whether the user has stopped it.
 @MainActor
 protocol WindowCatalog {
-    func standardWindows(bundleIdentifier: String) -> [MatchableWindow]
+    /// Throws when the window list could not be read at all — the app did not answer within the
+    /// AX timeout, or Accessibility refused — which is not the same as it having no windows: an
+    /// empty list is an answer, and the claim loop treats the two differently.
+    func standardWindows(bundleIdentifier: String) throws -> [MatchableWindow]
 }
 
 /// Async because placement has to wait for a window to actually come back out of the Dock before
 /// it writes the frame; see `WindowPlacement.apply`.
 @MainActor
 protocol WindowPlacing {
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> Bool
+    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome
 }
 
+/// The two things a bounded wait needs from time: to let some pass, and to know how much has.
+/// Both come through here so a whole restore can be driven through poll counts and a virtual
+/// clock in tests, with no real sleep. Named to stay clear of `Swift.Clock`.
 @MainActor
-protocol Clock {
+protocol RestoreClock {
+    var now: ContinuousClock.Instant { get }
     func sleep(_ duration: Duration) async
 }
 
@@ -129,28 +217,47 @@ enum InfoPlistInstancePolicy {
 }
 
 /// Serialises restores. Ownership passes straight from the finishing run to the next waiter:
-/// resuming a continuation only schedules it, so clearing `isHeld` before the resume would leave
+/// resuming a continuation only schedules it, so clearing the holder before the resume would leave
 /// a window in which a caller arriving fresh sees an idle gate and runs alongside the waiter that
-/// has been woken but has not been given control yet.
+/// has been woken but has not been given control yet. Only the holder's ticket releases: a stale
+/// release — twice from one run, or from a run that is no longer the holder — must not hand the
+/// gate to a waiter while the real holder is still restoring.
 @MainActor
 final class LaunchGate {
-    private(set) var isHeld = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func acquire() async {
-        guard isHeld else {
-            isHeld = true
-            return
-        }
-        await withCheckedContinuation { waiters.append($0) }
+    struct Ticket: Equatable, Sendable {
+        fileprivate let id: Int
     }
 
-    func release() {
-        guard !waiters.isEmpty else {
-            isHeld = false
+    private var nextID = 0
+    private var holder: Int?
+    private var waiters: [(ticket: Ticket, continuation: CheckedContinuation<Void, Never>)] = []
+
+    var isHeld: Bool { holder != nil }
+    var waiterCount: Int { waiters.count }
+
+    func acquire() async -> Ticket {
+        nextID += 1
+        let ticket = Ticket(id: nextID)
+        guard isHeld else {
+            holder = ticket.id
+            return ticket
+        }
+        await withCheckedContinuation { waiters.append((ticket, $0)) }
+        return ticket
+    }
+
+    func release(_ ticket: Ticket) {
+        guard holder == ticket.id else {
+            Log.launch.error("a restore tried to release the gate it does not hold; ignored")
             return
         }
-        waiters.removeFirst().resume()
+        guard !waiters.isEmpty else {
+            holder = nil
+            return
+        }
+        let next = waiters.removeFirst()
+        holder = next.ticket.id
+        next.continuation.resume()
     }
 }
 
@@ -189,13 +296,17 @@ final class LaunchService {
     private let windows: any WindowCatalog
     private let placer: any WindowPlacing
     private let displays: any DisplayCatalog
-    private let clock: any Clock
+    private let clock: any RestoreClock
     private let launchTimeout: Duration
     private let windowTimeout: Duration
     private let prohibitsMultipleInstances: (String, String) -> Bool
     private var lastRunID = 0
     private var cancelledThroughRunID = 0
     private let gate = LaunchGate()
+    /// The open this restore is waiting on, so a Cancel can end that wait rather than sit through
+    /// it. Restores are serialised by the gate and each opens one app at a time, so there is at
+    /// most one.
+    private var inFlightOpen: FirstOutcome?
 
     init(
         launcher: any ApplicationLaunching,
@@ -203,7 +314,7 @@ final class LaunchService {
         windows: any WindowCatalog,
         placer: any WindowPlacing,
         displays: any DisplayCatalog,
-        clock: any Clock,
+        clock: any RestoreClock,
         launchTimeout: Duration = LaunchService.defaultLaunchTimeout,
         windowTimeout: Duration = LaunchService.defaultWindowTimeout,
         prohibitsMultipleInstances: @escaping (String, String) -> Bool = { _, _ in false }
@@ -249,16 +360,25 @@ final class LaunchService {
     /// cannot reach into the *next* run.
     func cancel() {
         cancelledThroughRunID = lastRunID
+        // Without this the Cancel is not acted on until the open it landed in comes back — up to
+        // `launchTimeout` per slot, and the HUD's Cancel button is the one control that has to
+        // answer immediately.
+        inFlightOpen?.resume(.failure(LaunchCancelledError()))
     }
 
+    /// Restores parked behind the running one. Exposed for tests, which need to know when a
+    /// queued restore has actually reached the gate before aiming a cancel at it.
+    var queuedRestores: Int { gate.waiterCount }
+
     func launch(
-        _ document: WorkspaceDocument,
+        _ workspace: ValidatedWorkspace,
         onProgress: @MainActor @escaping ([SlotProgress]) -> Void
     ) async -> [SlotProgress] {
+        let document = workspace.document
         lastRunID += 1
         let runID = lastRunID
-        await gate.acquire()
-        defer { gate.release() }
+        let ticket = await gate.acquire()
+        defer { gate.release(ticket) }
 
         let slots = document.windows
         if slots.isEmpty {
@@ -277,24 +397,35 @@ final class LaunchService {
             return progress
         }
 
-        let plans = LaunchPlanner.plan(
+        let actions = LaunchPlanner.plan(
             document: document,
             runningBundleIDs: apps.runningBundleIDs(),
             prohibitsMultipleInstances: prohibitsMultipleInstances
         )
         Log.launch.info("launching \(document.name, privacy: .public) with \(slots.count) slot(s)")
 
-        for plan in plans {
+        // The processes each bundle already had before this restore launched a new instance of
+        // it. Their windows are the user's own — a restore with "move existing windows" off
+        // exists to leave them alone — and the catalog cannot tell them apart from the new
+        // instance's by anything but pid. Read once per bundle, before its first launch, so a
+        // second new instance of the same bundle is not mistaken for a pre-existing one.
+        var preExistingPIDs: [String: Set<pid_t>] = [:]
+
+        for (index, action) in actions.enumerated() {
             if isCancelled(runID) {
                 cancelPending(&progress)
                 onProgress(progress)
                 return progress
             }
-            guard case .launch(_, _, let arguments, let newInstance) = plan.action else { continue }
+            guard case .launch(let arguments, let newInstance) = action else { continue }
 
-            let index = plan.index
             progress[index].status = .launching
             onProgress(progress)
+
+            let bundle = slots[index].bundleIdentifier
+            if newInstance, preExistingPIDs[bundle] == nil {
+                preExistingPIDs[bundle] = apps.runningPIDs(bundleIdentifier: bundle)
+            }
 
             guard let url = resolveURL(for: slots[index]) else {
                 fail(&progress, index: index, reason: .appNotFound, onProgress: onProgress)
@@ -338,6 +469,10 @@ final class LaunchService {
         var matches: [Int: MatchableWindow] = [:]
         var provisional: [Int: MatchableWindow] = [:]
         var stopped = false
+        // Bundles already named in the log for a failed read or a fully-filtered pool, so a poll
+        // loop does not repeat itself eighty times.
+        var loggedUnreadable: Set<String> = []
+        var loggedPreExistingOnly: Set<String> = []
 
         // Which slots are still owed a window, in the order the workspace lists them. Nothing here
         // suspends, so a cancel can only have arrived through `onProgress`.
@@ -361,7 +496,7 @@ final class LaunchService {
                 continue
             }
 
-            if case .reuse = plans[index].action {
+            if case .reuse = actions[index] {
                 apps.unhide(bundleIdentifier: slot.bundleIdentifier)
             }
 
@@ -371,7 +506,11 @@ final class LaunchService {
         // How many windows the workspace expects each app to produce. An app that has vended that
         // many has nothing further coming that this restore is entitled to wait for, so the slots
         // still unmatched at that point — titles that changed since the capture, the ordinary case
-        // — get their leftovers straight away instead of after the timeout.
+        // — get their leftovers straight away instead of after the timeout. Counted from the slots
+        // still waiting, and compared against a pool that already excludes the windows of an
+        // instance that was running before this restore launched a new one — so a reused app with
+        // more windows than the workspace saved is "finished" on the first poll, which is correct:
+        // they are all windows it has already vended.
         var expectedWindows: [String: Int] = [:]
         for index in waiting {
             expectedWindows[slots[index].bundleIdentifier, default: 0] += 1
@@ -388,9 +527,13 @@ final class LaunchService {
         // leftovers go out only once nothing more is expected; `WindowMatcher` explains why that
         // has to happen against one read rather than two.
         //
-        // Bounded by a poll count rather than a wall clock so the wait is the same length whichever
-        // `Clock` is driving it.
+        // Bounded twice over. The poll count makes the wait the same length whichever clock is
+        // driving it, which is what lets a test pin it; the deadline is what holds in the real
+        // thing, where each poll's snapshot is synchronous Accessibility I/O on the main thread
+        // — up to `AXWindow.messagingTimeout` per read against a hung app — so eighty polls
+        // against such an app would be forty seconds with the main actor blocked, not eight.
         var pollsLeft = Int((windowTimeout / Self.windowPollInterval).rounded(.up))
+        let deadline = clock.now + windowTimeout
         while !stopped, !waiting.isEmpty {
             // The window wait is where a Cancel most often lands — the user clicks while a slow app
             // is still starting — so it is checked here, between polls, rather than only once the
@@ -403,13 +546,27 @@ final class LaunchService {
             }
 
             let pendingSlots = waiting.map { slots[$0] }
-            let pool = snapshot(of: pendingSlots)
-            let outOfPolls = pollsLeft == 0
+            let read = snapshot(of: pendingSlots, excluding: preExistingPIDs)
+            let pool = read.pool
+            for bundle in read.unreadable where loggedUnreadable.insert(bundle).inserted {
+                Log.launch.error(
+                    "the windows of \(bundle, privacy: .public) could not be read; polling on in case it answers later"
+                )
+            }
+            for bundle in read.onlyPreExisting where loggedPreExistingOnly.insert(bundle).inserted {
+                Log.launch.notice(
+                    """
+                    every window \(bundle, privacy: .public) has belongs to the instance that was \
+                    already running, and this restore asked for a new one; its windows are left alone
+                    """
+                )
+            }
+            let outOfPolls = pollsLeft == 0 || clock.now >= deadline
             // Which slots may settle for a window they are not named after, decided per app rather
             // than for the restore as a whole. An app that has vended as many windows as the
             // workspace expects of it will not produce more, so its slots can settle now; deciding
-            // it globally would hold those slots at "Matching" for the whole timeout whenever some
-            // *other* app in the workspace never vends at all.
+            // it globally would hold those slots at "Launching" for the whole timeout whenever
+            // some *other* app in the workspace never vends at all.
             let finished = finishedBundles(pendingSlots: pendingSlots, pool: pool, expected: expectedWindows)
             let takingLeftovers = Set(
                 pendingSlots.indices.filter { outOfPolls || finished.contains(pendingSlots[$0].bundleIdentifier) }
@@ -428,15 +585,36 @@ final class LaunchService {
                     claimed.insert(window.id)
                     matches[index] = window
                     // A window the slot is not named after is a guess, not an answer; remember it
-                    // so the correction pass below can revisit it if the real one turns up.
+                    // so the correction pass below can revisit it if the real one turns up, and
+                    // say so in the log — a swapped pair of windows is otherwise a restore that
+                    // reports every slot placed and explains nothing.
                     if exact[position]?.id != window.id {
                         provisional[index] = window
+                        Log.launch.notice(
+                            """
+                            slot \(index) (\(slots[index].name, privacy: .public)) wanted \
+                            "\(slots[index].title, privacy: .public)" and settled for \
+                            "\(window.title, privacy: .public)"
+                            """
+                        )
                     }
                     progress[index].status = .matched
                     onProgress(progress)
                 } else if takingLeftovers.contains(position) {
                     // Its app is done vending — or the wait is over — and there was nothing left.
-                    fail(&progress, index: index, reason: .noWindow, onProgress: onProgress)
+                    // *Why* there was nothing left is three different things to the user, decided
+                    // on what this poll saw rather than on what any poll ever saw: the state the
+                    // app is in now is the one they are looking at.
+                    let bundle = slots[index].bundleIdentifier
+                    let reason: SlotFailure
+                    if read.unreadable.contains(bundle) {
+                        reason = .windowsUnreadable
+                    } else if read.onlyPreExisting.contains(bundle) {
+                        reason = .noNewWindow
+                    } else {
+                        reason = .noWindow
+                    }
+                    fail(&progress, index: index, reason: reason, onProgress: onProgress)
                 } else {
                     stillWaiting.append(index)
                 }
@@ -453,39 +631,51 @@ final class LaunchService {
                 if isCancelled(runID) {
                     cancelPending(&progress)
                     onProgress(progress)
+                    // `stopped` matters as much here as in the branch below: without it a Cancel
+                    // that lands between two *successful* placements still falls through to
+                    // `activateFrontmost` and brings an app forward after the user stopped the
+                    // restore. The real placer blocks for up to two seconds per window, so this is
+                    // where a click most often lands.
+                    stopped = true
                     break
                 }
                 guard let match = matches[index] else { continue }
                 let slot = slots[index]
 
-                guard let clamped = targetFrame(for: slot, in: document) else {
-                    fail(&progress, index: index, reason: .couldNotPosition, onProgress: onProgress)
+                guard let target = targetFrame(for: slot, in: document) else {
+                    fail(&progress, index: index, reason: .noDisplay, onProgress: onProgress)
                     continue
                 }
-                let placed = await placer.place(
+                let outcome = await placer.place(
                     match,
-                    cocoaFrame: clamped,
+                    cocoaFrame: target.frame,
                     minimized: slot.minimized,
                     zoomed: slot.zoomed
                 )
-                if !placed {
+                if let failure = outcome.slotFailure {
                     // A placement torn down by a Cancel refuses like any other. The user stopping
-                    // the restore is not a slot that could not be positioned.
+                    // the restore is not a slot that could not be positioned — and nothing after
+                    // this is the restore's to do either, not even bringing an app forward.
                     if isCancelled(runID) {
                         cancelPending(&progress)
                         onProgress(progress)
+                        stopped = true
                         break
                     }
-                    fail(&progress, index: index, reason: .couldNotPosition, onProgress: onProgress)
+                    fail(&progress, index: index, reason: failure, onProgress: onProgress)
                     continue
                 }
 
-                progress[index].status = .placed
+                progress[index].status = .placed(
+                    Self.note(for: slot, on: target.display, isGuess: provisional[index] != nil)
+                )
                 onProgress(progress)
             }
         }
 
-        activateFrontmost(slots: slots, progress: progress)
+        if !stopped {
+            activateFrontmost(slots: slots, matches: matches, progress: progress)
+        }
 
         // Settling for a leftover was a guess made on incomplete information, and it is worth
         // revisiting rather than predicting better: whether an app has finished opening its windows
@@ -498,6 +688,7 @@ final class LaunchService {
                 slots: slots,
                 document: document,
                 claimed: claimed,
+                excluding: preExistingPIDs,
                 progress: &progress,
                 runID: runID,
                 onProgress: onProgress
@@ -515,6 +706,7 @@ final class LaunchService {
         slots: [SavedWindow],
         document: WorkspaceDocument,
         claimed: Set<String>,
+        excluding preExistingPIDs: [String: Set<pid_t>],
         progress: inout [SlotProgress],
         runID: Int,
         onProgress: @MainActor ([SlotProgress]) -> Void
@@ -522,13 +714,14 @@ final class LaunchService {
         var pending = provisional
         var taken = claimed
         var pollsLeft = Int((Self.correctionWindow / Self.windowPollInterval).rounded(.up))
+        let deadline = clock.now + Self.correctionWindow
 
-        while pollsLeft > 0, !pending.isEmpty {
+        while pollsLeft > 0, clock.now < deadline, !pending.isEmpty {
             if isCancelled(runID) { return }
             await clock.sleep(Self.windowPollInterval)
             pollsLeft -= 1
 
-            let pool = snapshot(of: pending.keys.map { slots[$0] })
+            let pool = snapshot(of: pending.keys.map { slots[$0] }, excluding: preExistingPIDs).pool
             // Descending, so that when several corrections land in the same poll slot 0 is placed
             // last and therefore ends up on top, matching the placement pass.
             for index in pending.keys.sorted(by: >) {
@@ -539,15 +732,34 @@ final class LaunchService {
                         && !taken.contains($0.id)
                 }) else { continue }
 
+                // The window is spent either way: a refused placement is not retried against the
+                // same window, whose id is stable for its lifetime. The *slot* stays open, so a
+                // second window carrying the saved title — an app that reopened the document —
+                // can still correct it inside the correction window.
                 taken.insert(own.id)
-                pending[index] = nil
-                guard let frame = targetFrame(for: slot, in: document) else { continue }
-                guard await placer.place(
+                guard let target = targetFrame(for: slot, in: document) else {
+                    Log.launch.error(
+                        "slot \(index) (\(slot.name, privacy: .public)): no display attached, so the correction was dropped"
+                    )
+                    continue
+                }
+                let outcome = await placer.place(
                     own,
-                    cocoaFrame: frame,
+                    cocoaFrame: target.frame,
                     minimized: slot.minimized,
                     zoomed: slot.zoomed
-                ) else { continue }
+                )
+                guard outcome == .placed else {
+                    Log.launch.error(
+                        """
+                        slot \(index) (\(slot.name, privacy: .public)): "\(slot.title, privacy: .public)" \
+                        vended after the slot had settled, but placing it ended as \
+                        \(String(describing: outcome), privacy: .public); the guess stands for now
+                        """
+                    )
+                    continue
+                }
+                pending[index] = nil
 
                 Log.launch.info(
                     """
@@ -555,22 +767,25 @@ final class LaunchService {
                     "\(slot.title, privacy: .public)", which vended after the slot had settled
                     """
                 )
-                progress[index].status = .placed
+                progress[index].status = .placed(Self.note(for: slot, on: target.display, isGuess: false))
                 onProgress(progress)
             }
         }
     }
 
-    /// Where a slot's window belongs on the screens attached right now. Nil when no display is
-    /// attached at all, which is the one case that cannot be a placement.
-    private func targetFrame(for slot: SavedWindow, in document: WorkspaceDocument) -> CGRect? {
+    /// Where a slot's window belongs on the screens attached right now, and which screen that is.
+    /// Nil when no display is attached at all, which is the one case that cannot be a placement.
+    private func targetFrame(
+        for slot: SavedWindow,
+        in document: WorkspaceDocument
+    ) -> (frame: CGRect, display: LiveDisplay)? {
         let live = displays.displays()
-        guard let main = live.first else { return nil }
+        guard let primary = live.first else { return nil }
         let resolved = DisplayMap.resolve(
             displayId: slot.displayId,
             saved: document.displays,
             live: live,
-            main: main
+            primary: primary
         )
         let savedVisible = document.displays.first(where: { $0.id == slot.displayId })?.visibleFrame.cgRect
             ?? resolved.visibleFrame
@@ -580,7 +795,18 @@ final class LaunchService {
             savedVisible: savedVisible,
             liveVisible: resolved.visibleFrame
         )
-        return FramePlacement.clamp(restored, to: resolved.visibleFrame)
+        return (FramePlacement.clamp(restored, to: resolved.visibleFrame), resolved)
+    }
+
+    /// What the HUD has to add to "Placed": a screen other than the one the window was captured
+    /// on, and a window the slot is not named after.
+    private static func note(for slot: SavedWindow, on display: LiveDisplay, isGuess: Bool) -> PlacementNote {
+        guard display.id != slot.displayId else {
+            return PlacementNote(isGuess: isGuess, substituteDisplay: nil)
+        }
+        // A screen can report an empty localized name; "Placed on " helps nobody.
+        let name = display.name.isEmpty ? "another display" : display.name
+        return PlacementNote(isGuess: isGuess, substituteDisplay: name)
     }
 
     private func resolveURL(for slot: SavedWindow) -> URL? {
@@ -593,34 +819,83 @@ final class LaunchService {
         return nil
     }
 
+    /// Opens the app, or throws `LaunchTimeoutError` once `launchTimeout` has passed — and returns
+    /// at that moment, whatever the launch is still doing. The launch runs as its own task and is
+    /// never awaited past the deadline: `NSWorkspace.openApplication` does not observe cancellation
+    /// (its completion handler arrives when LaunchServices is done, however long that takes), so a
+    /// structured group racing the two bounded the *error* and not the wait — it had to await the
+    /// launch before it could rethrow the timeout, and a bundle that took 90s to open held the
+    /// whole restore, and the HUD's Cancel button, for those 90s. The attempt is still cancelled,
+    /// for a launcher that honours it; otherwise it finishes on its own, unobserved.
     private func open(at url: URL, configuration: LaunchConfiguration) async throws {
         let timeout = launchTimeout
         let launcher = launcher
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await launcher.openApplication(at: url, configuration: configuration)
+        let outcome = FirstOutcome()
+        inFlightOpen = outcome
+        defer { inFlightOpen = nil }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            outcome.continuation = continuation
+            let attempt = Task { @MainActor in
+                do {
+                    try await launcher.openApplication(at: url, configuration: configuration)
+                    outcome.resume(.success(()))
+                } catch {
+                    outcome.resume(.failure(error))
+                }
             }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw LaunchTimeoutError()
+            let timer = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                outcome.resume(.failure(LaunchTimeoutError()))
             }
-            try await group.next()
-            group.cancelAll()
+            // Whichever finishes first tears the other down, so a launch that returns promptly does
+            // not leave a timer sleeping for the rest of the timeout — one per slot, on real time.
+            outcome.onSettled = {
+                attempt.cancel()
+                timer.cancel()
+            }
         }
     }
 
     /// Every window the still-waiting slots could be given, read once per app rather than once per
     /// slot: two slots of the same app reading separately would see two different snapshots, and a
     /// window that vends between the reads is exactly the one an earlier slot can steal from the
-    /// later slot it belongs to.
-    private func snapshot(of pendingSlots: [SavedWindow]) -> [MatchableWindow] {
-        var seen: Set<String> = []
+    /// later slot it belongs to. Windows of the processes in `preExistingPIDs` are left out: they
+    /// belong to an instance the user already had running when this restore launched a new one.
+    /// One poll's worth of catalog, and what it could not offer: the apps whose list would not be
+    /// read at all, and the apps whose every window belongs to an instance that was already
+    /// running. Both end as a different failure from "this app opened no window".
+    private struct PoolRead {
         var pool: [MatchableWindow] = []
+        var unreadable: Set<String> = []
+        var onlyPreExisting: Set<String> = []
+    }
+
+    private func snapshot(
+        of pendingSlots: [SavedWindow],
+        excluding preExistingPIDs: [String: Set<pid_t>]
+    ) -> PoolRead {
+        var seen: Set<String> = []
+        var read = PoolRead()
         for slot in pendingSlots {
-            guard seen.insert(slot.bundleIdentifier).inserted else { continue }
-            pool.append(contentsOf: windows.standardWindows(bundleIdentifier: slot.bundleIdentifier))
+            let bundle = slot.bundleIdentifier
+            guard seen.insert(bundle).inserted else { continue }
+            let excluded = preExistingPIDs[bundle] ?? []
+            do {
+                let vended = try windows.standardWindows(bundleIdentifier: bundle)
+                let usable = vended.filter { !excluded.contains($0.pid) }
+                if usable.isEmpty, !vended.isEmpty {
+                    read.onlyPreExisting.insert(bundle)
+                }
+                read.pool.append(contentsOf: usable)
+            } catch {
+                read.unreadable.insert(bundle)
+            }
         }
-        return pool
+        return read
     }
 
     /// The apps that will not turn up another window, so their still-unmatched slots may settle for
@@ -642,15 +917,21 @@ final class LaunchService {
         }
     }
 
-    private func activateFrontmost(slots: [SavedWindow], progress: [SlotProgress]) {
+    private func activateFrontmost(
+        slots: [SavedWindow],
+        matches: [Int: MatchableWindow],
+        progress: [SlotProgress]
+    ) {
         guard !slots.isEmpty else { return }
-        if progress[0].status == .placed {
-            apps.activate(bundleIdentifier: slots[0].bundleIdentifier)
+        let index: Int
+        if progress[0].status.isPlaced {
+            index = 0
+        } else if let placed = progress.first(where: { $0.status.isPlaced }) {
+            index = placed.index
+        } else {
             return
         }
-        if let placed = progress.first(where: { $0.status == .placed }) {
-            apps.activate(bundleIdentifier: slots[placed.index].bundleIdentifier)
-        }
+        apps.activate(bundleIdentifier: slots[index].bundleIdentifier, pid: matches[index]?.pid)
     }
 
     private func fail(
@@ -665,8 +946,12 @@ final class LaunchService {
         onProgress(progress)
     }
 
+    /// A cancelled task counts too. Nothing cancels the task a restore runs in today, but if one
+    /// ever were, `Task.sleep` would throw at once and every timed wait would collapse into a
+    /// zero-delay loop that burns the poll budget instantly and reports `.noWindow` for slots
+    /// that merely had not vended yet — a failure the user never asked for.
     private func isCancelled(_ runID: Int) -> Bool {
-        cancelledThroughRunID >= runID
+        cancelledThroughRunID >= runID || Task.isCancelled
     }
 
     /// Anything not already placed or failed is lost to the cancel. `.launching` and `.matched`
@@ -685,6 +970,26 @@ final class LaunchService {
 }
 
 private struct LaunchTimeoutError: Error {}
+private struct LaunchCancelledError: Error {}
+
+/// Hands one continuation whichever of the racing tasks finishes first, and drops every later
+/// result: a continuation resumed twice is a crash, and a launch that comes back after its timeout
+/// has already been reported is exactly that second resume.
+@MainActor
+private final class FirstOutcome {
+    var continuation: CheckedContinuation<Void, any Error>?
+    /// Runs once, when the race is decided: where the losers are torn down.
+    var onSettled: (@MainActor () -> Void)?
+
+    func resume(_ result: Result<Void, any Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        let settled = onSettled
+        onSettled = nil
+        settled?()
+        continuation.resume(with: result)
+    }
+}
 
 @MainActor
 struct NSWorkspaceLauncher: ApplicationLaunching {
@@ -714,30 +1019,68 @@ struct NSWorkspaceRunningQuery: RunningApplicationQuerying {
         Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
     }
 
+    func runningPIDs(bundleIdentifier: String) -> Set<pid_t> {
+        Set(runningApps(bundleIdentifier: bundleIdentifier).map(\.processIdentifier))
+    }
+
     func unhide(bundleIdentifier: String) {
-        for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier == bundleIdentifier {
-            app.unhide()
+        for app in runningApps(bundleIdentifier: bundleIdentifier) where !app.unhide() {
+            // A ⌘H'd app that stays hidden has its windows placed where the user cannot see them,
+            // which reads as a restore that did nothing.
+            Log.launch.error("\(bundleIdentifier, privacy: .public) refused to unhide")
         }
     }
 
-    func activate(bundleIdentifier: String) {
-        NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == bundleIdentifier }?.activate()
+    func activate(bundleIdentifier: String, pid: pid_t?) {
+        let candidates = runningApps(bundleIdentifier: bundleIdentifier)
+        guard let app = candidates.first(where: { $0.processIdentifier == pid }) ?? candidates.first else {
+            Log.launch.error("\(bundleIdentifier, privacy: .public) is not running; nothing to bring forward")
+            return
+        }
+        if !app.activate() {
+            Log.launch.error("\(bundleIdentifier, privacy: .public) refused to come forward")
+        }
     }
 }
 
 @MainActor
 struct AXWindowCatalog: WindowCatalog {
-    func standardWindows(bundleIdentifier: String) -> [MatchableWindow] {
-        runningApps(bundleIdentifier: bundleIdentifier).flatMap { app in
-            AXWindow.windows(pid: app.processIdentifier).compactMap { window -> MatchableWindow? in
-                guard isStandard(window), let id = matchableID(for: window) else { return nil }
-                return MatchableWindow(
-                    id: id,
-                    bundleIdentifier: bundleIdentifier,
-                    title: window.title ?? ""
+    /// Throws only when every process of the bundle refused the read: one instance answering is
+    /// a pool the claim loop can work with, and the refusal of another is logged rather than
+    /// allowed to hide those windows.
+    func standardWindows(bundleIdentifier: String) throws -> [MatchableWindow] {
+        let apps = runningApps(bundleIdentifier: bundleIdentifier)
+        var pool: [MatchableWindow] = []
+        var answered = 0
+        var lastError: AXWindowListError?
+        for app in apps {
+            let windows: [AXWindow]
+            do {
+                windows = try AXWindow.windows(pid: app.processIdentifier)
+                answered += 1
+            } catch {
+                Log.launch.error(
+                    "could not list the windows of \(bundleIdentifier, privacy: .public) (pid \(app.processIdentifier)): AXError \(error.code.rawValue)"
+                )
+                lastError = error
+                continue
+            }
+            for window in windows {
+                guard let identity = window.identity, isStandard(window) else { continue }
+                pool.append(
+                    MatchableWindow(
+                        id: identity.key,
+                        pid: identity.pid,
+                        bundleIdentifier: bundleIdentifier,
+                        title: window.title ?? ""
+                    )
                 )
             }
         }
+        if let lastError, answered == 0 {
+            throw lastError
+        }
+        return pool
     }
 }
 
@@ -773,10 +1116,11 @@ enum WindowPlacement {
     static let deminiaturizeTimeout: Duration = .seconds(2)
 
     /// A zoom animates in about a quarter of a second and, unlike the deminiaturize, is not a
-    /// precondition for anything after it — so it gets its own, much shorter bound. Reusing the
-    /// two-second one would cost that per window whose zoom can never take, and a workspace full of
-    /// fixed-size utility windows would spend most of its restore waiting for presses to land that
-    /// never will.
+    /// precondition for anything after it — so it gets its own, much shorter bound. It is only
+    /// ever spent on a press that was *accepted* and still did not reach the visible frame — a
+    /// window whose maximum size is smaller than the screen, or an app with a standard frame of
+    /// its own — because a window with no zoom button fails fast on `.attributeUnsupported`
+    /// instead. Reusing the two-second bound would cost that twice per such window.
     static let zoomTimeout: Duration = .milliseconds(500)
 
     /// Short enough that a window that comes straight back is not visibly held up, long enough not
@@ -789,13 +1133,13 @@ enum WindowPlacement {
         minimized: Bool,
         zoomed: Bool,
         bundleIdentifier id: String,
-        clock: any Clock
-    ) async -> Bool {
+        clock: any RestoreClock
+    ) async -> PlacementOutcome {
         // A slot saved minimized on a window that is still minimized needs nothing: the frame write
         // would be swallowed by the Dock anyway, and deminiaturizing just to re-minimize is a flash
         // the user sees for no gain. Only a *confirmed* minimized short-circuits — an unreadable
         // state is not evidence of anything, and falls through to the honest sequence below.
-        if minimized, ax.minimizedState == true { return true }
+        if minimized, ax.minimizedState == true { return .placed }
 
         // Un-minimizing is a precondition, not a cosmetic: a window still in the Dock swallows the
         // writes below while AX reports `.success` for them. What a refusal *means* depends on what
@@ -811,7 +1155,7 @@ enum WindowPlacement {
             // that never flips — stops the placement, because the frame write would report success
             // and do nothing. Accepting the write is not the window being back either (AX writes
             // reach the window server asynchronously), so the state is re-read until it flips.
-            guard succeeded(write, bundleIdentifier: id, step: "un-minimize") else { return false }
+            guard succeeded(write, bundleIdentifier: id, step: "un-minimize") else { return .refused }
             guard await settled(clock: clock, timeout: deminiaturizeTimeout, until: { ax.minimizedState == false })
             else {
                 Log.ax.error(
@@ -820,7 +1164,7 @@ enum WindowPlacement {
                     its frame was left alone rather than written to a minimized window
                     """
                 )
-                return false
+                return .refused
             }
 
         case .stateUnknown(let write):
@@ -841,7 +1185,18 @@ enum WindowPlacement {
                     un-minimize; its frame was left alone rather than written to a minimized window
                     """
                 )
-                return false
+                return .refused
+            }
+            if ax.minimizedState == nil {
+                // Never answered either way. The frame write below is the only step left that can
+                // report on this window, so it gets its turn — but the silence is worth a line:
+                // it is what a placement that then fails for no visible reason looked like.
+                Log.ax.notice(
+                    """
+                    a window of \(id, privacy: .public) never said whether it was minimized; \
+                    writing its frame anyway
+                    """
+                )
             }
         }
 
@@ -863,7 +1218,7 @@ enum WindowPlacement {
         // The one write the whole placement exists for, so its refusal is the one most worth a log
         // line: every other step here already names itself when it fails.
         guard succeeded(ax.setCocoaFrame(cocoaFrame), bundleIdentifier: id, step: "frame") else {
-            return false
+            return .refused
         }
 
         // The frame is applied by this point, but a slot whose saved zoom or minimize state was
@@ -873,9 +1228,27 @@ enum WindowPlacement {
             restoredState = await ensureZoomed(ax, id: id, clock: clock) && restoredState
         }
         if minimized {
-            restoredState = succeeded(ax.setMinimized(true), bundleIdentifier: id, step: "minimize") && restoredState
+            restoredState = await ensureMinimized(ax, id: id, clock: clock) && restoredState
         }
-        return restoredState
+        return restoredState ? .placed : .stateNotRestored
+    }
+
+    /// Puts the window back in the Dock and waits for it to actually get there. Accepting the
+    /// write is not the state changing — the same asynchrony the un-minimize above waits out — and
+    /// a window that cannot be miniaturized at all (a panel, a window without the button) answers
+    /// `.success` and stays on screen, which used to be reported as a clean placement.
+    private static func ensureMinimized(_ ax: some PlaceableWindow, id: String, clock: any RestoreClock) async -> Bool {
+        guard succeeded(ax.setMinimized(true), bundleIdentifier: id, step: "minimize") else { return false }
+        if await settled(clock: clock, timeout: deminiaturizeTimeout, until: { ax.minimizedState == true }) {
+            return true
+        }
+        Log.ax.error(
+            """
+            a window of \(id, privacy: .public) was saved minimized but never went into the Dock; \
+            it is on its saved frame but the slot is not fully restored
+            """
+        )
+        return false
     }
 
     /// Presses towards zoomed only while the state does not already answer the request, then reads
@@ -890,7 +1263,7 @@ enum WindowPlacement {
     /// The guard has to live here and not only inside `AXWindow.setZoomed`: this loop is the
     /// placement's own outcome verification, and it is the only one visible at the seam the
     /// sequencing is tested against.
-    private static func ensureZoomed(_ ax: some PlaceableWindow, id: String, clock: any Clock) async -> Bool {
+    private static func ensureZoomed(_ ax: some PlaceableWindow, id: String, clock: any RestoreClock) async -> Bool {
         for _ in 0..<2 {
             if ax.isZoomed { return true }
             guard succeeded(ax.setZoomed(true), bundleIdentifier: id, step: "zoom") else { return false }
@@ -908,7 +1281,7 @@ enum WindowPlacement {
     /// Polls a fixed number of times rather than against a wall clock so the wait is the same
     /// length whichever `Clock` is driving it.
     private static func settled(
-        clock: any Clock,
+        clock: any RestoreClock,
         timeout: Duration,
         until isDone: @MainActor () -> Bool
     ) async -> Bool {
@@ -936,10 +1309,32 @@ enum WindowPlacement {
 
 @MainActor
 struct AXWindowPlacer: WindowPlacing {
-    var clock: any Clock = TaskClock()
+    var clock: any RestoreClock = TaskClock()
 
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> Bool {
-        guard let ax = axWindow(matching: window) else { return false }
+    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome {
+        let ax: AXWindow
+        switch axWindow(matching: window) {
+        case .found(let found):
+            ax = found
+        case .notListed:
+            Log.launch.error(
+                """
+                window \(window.id, privacy: .public) of \(window.bundleIdentifier, privacy: .public) is no \
+                longer listed: closed, or retitled since it was claimed
+                """
+            )
+            return .windowGone
+        case .unreadable:
+            // Not the same thing: nobody could look, so whether the window is still there is
+            // unknown. Reporting it as gone sends the user hunting for a window that is on screen.
+            Log.launch.error(
+                """
+                the windows of \(window.bundleIdentifier, privacy: .public) could not be read when it \
+                came to placing one; the slot is unresolved rather than known to be gone
+                """
+            )
+            return .windowsUnreadable
+        }
         return await WindowPlacement.apply(
             to: ax,
             cocoaFrame: cocoaFrame,
@@ -950,20 +1345,38 @@ struct AXWindowPlacer: WindowPlacing {
         )
     }
 
-    private func axWindow(matching window: MatchableWindow) -> AXWindow? {
-        for app in runningApps(bundleIdentifier: window.bundleIdentifier) {
-            for ax in AXWindow.windows(pid: app.processIdentifier) {
-                if matchableID(for: ax) == window.id {
-                    return ax
+    private enum Lookup {
+        case found(AXWindow)
+        /// Every process answered, and none of them has this window any more.
+        case notListed
+        /// No process answered, so the question was never put.
+        case unreadable
+    }
+
+    private func axWindow(matching window: MatchableWindow) -> Lookup {
+        var answered = 0
+        let apps = runningApps(bundleIdentifier: window.bundleIdentifier)
+        for app in apps {
+            do {
+                let windows = try AXWindow.windows(pid: app.processIdentifier)
+                answered += 1
+                for ax in windows where ax.identity?.key == window.id {
+                    return .found(ax)
                 }
+            } catch {
+                Log.launch.error(
+                    "could not list the windows of \(window.bundleIdentifier, privacy: .public) (pid \(app.processIdentifier)) to place one: AXError \(error.code.rawValue)"
+                )
             }
         }
-        return nil
+        return answered == 0 && !apps.isEmpty ? .unreadable : .notListed
     }
 }
 
 @MainActor
-struct TaskClock: Clock {
+struct TaskClock: RestoreClock {
+    var now: ContinuousClock.Instant { .now }
+
     func sleep(_ duration: Duration) async {
         try? await Task.sleep(for: duration)
     }
@@ -974,30 +1387,20 @@ private func runningApps(bundleIdentifier: String) -> [NSRunningApplication] {
     NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == bundleIdentifier }
 }
 
-@MainActor
-private func matchableID(for window: AXWindow) -> String? {
-    guard let identity = window.identity else { return nil }
-    switch identity {
-    case .cgWindow(let id, let pid):
-        return "cg:\(pid):\(id)"
-    case .fallback(let pid, let title):
-        return "fb:\(pid):\(title)"
-    }
-}
-
+/// The same eligibility test capture applies, on the restore side: a window capture would have
+/// refused — an Open/Save panel above all — must not be handed to a slot as a leftover and resized
+/// to a saved frame. The app-level facts are literals because the catalog is only ever asked about
+/// a regular app that is not SnapDesk.
 @MainActor
 private func isStandard(_ window: AXWindow) -> Bool {
     guard let frame = window.cocoaFrame else { return false }
     return CaptureFilter.isEligible(
         CaptureCandidate(
-            bundleIdentifier: "",
-            role: "AXWindow",
             subrole: window.subrole,
             frame: frame,
             isSnapDesk: false,
             activationPolicyIsRegular: true,
-            isMinimized: window.isMinimized,
-            cgWindowID: window.cgWindowID
+            hasTitleBarButtons: window.hasTitleBarButtons
         )
     )
 }

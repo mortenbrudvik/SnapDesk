@@ -44,11 +44,6 @@ final class ScreenGeometryTests: XCTestCase {
         }
     }
 
-    func testAXPointFlipsY() {
-        let ax = ScreenGeometry.axPoint(fromCocoa: CGPoint(x: 10, y: 1000), primaryMaxY: 1080)
-        XCTAssertEqual(ax, CGPoint(x: 10, y: 80))
-    }
-
     // MARK: Display lookup
 
     func testPointOnTheTopEdgeOfADisplayResolvesToIt() {

@@ -12,6 +12,12 @@ final class EditorSession: ObservableObject {
             if document != oldValue {
                 isDirty = true
             }
+            // The editor's bindings write into `document` directly, so a slot count can change
+            // without going through the methods below. `rowIDs` is zipped with the windows to key
+            // the SwiftUI rows, and a shorter one silently drops the last rows from the list.
+            if document.windows.count != rowIDs.count {
+                realignRowIDs()
+            }
         }
     }
     @Published var fileURL: URL?
@@ -32,8 +38,21 @@ final class EditorSession: ObservableObject {
 
     func removeWindow(at index: Int) {
         guard document.windows.indices.contains(index) else { return }
-        document.windows.remove(at: index)
+        // The identity goes first, so the counts match by the time `document`'s observer runs and
+        // it has nothing to realign — realigning would drop the *last* row rather than this one.
         rowIDs.remove(at: index)
+        document.windows.remove(at: index)
+    }
+
+    /// Keeps the rows that are still there and mints identities for the rest. Appending a slot
+    /// must not renumber the ones above it, or every row loses its place mid-edit.
+    private func realignRowIDs() {
+        let count = document.windows.count
+        if rowIDs.count > count {
+            rowIDs = Array(rowIDs.prefix(count))
+        } else {
+            rowIDs += (rowIDs.count..<count).map { _ in UUID() }
+        }
     }
 
     /// Returns `false` — leaving the session untouched — when the capture holds no windows.

@@ -1,17 +1,16 @@
 import CoreGraphics
 import Foundation
 
+/// The facts `CaptureFilter` decides eligibility on — and only those. Every field is required so a
+/// call site cannot leave one at a default that quietly switches a rule off: the restore catalog
+/// once built a candidate without the title-bar buttons, and the Open/Save-panel rule never fired
+/// on that side.
 struct CaptureCandidate: Equatable {
-    var bundleIdentifier: String
-    var role: String
     var subrole: String?
     var frame: CGRect
     var isSnapDesk: Bool
     var activationPolicyIsRegular: Bool
-    var isMinimized: Bool
-    var cgWindowID: UInt32?
-    /// Whether the window vends any of the close / minimize / zoom button elements. Defaulted so
-    /// the many call sites that build a candidate to ask a question unrelated to window chrome do
-    /// not have to answer it; capture, which is the one that must, passes the real value.
-    var hasTitleBarButtons: Bool = true
+    /// Whether the window vends any of the close / minimize / zoom button elements; see
+    /// `CaptureFilter.isChromelessStandardWindow`.
+    var hasTitleBarButtons: Bool
 }

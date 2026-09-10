@@ -19,9 +19,9 @@ final class StatusItemControllerTests: XCTestCase {
     }
 
     private final class SpyAlerting: UserAlerting {
-        private(set) var messages: [String] = []
+        private(set) var titles: [String] = []
 
-        func show(message: String) { messages.append(message) }
+        func show(title: String, detail: String?) { titles.append(title) }
     }
 
     /// Shared with the controller's callbacks by reference, so a test can flip the permission
@@ -110,7 +110,7 @@ final class StatusItemControllerTests: XCTestCase {
         try performFirstRecent(in: fixture)
 
         XCTAssertEqual(fixture.launching.launchedURLs, [url])
-        XCTAssertTrue(fixture.alerting.messages.isEmpty)
+        XCTAssertTrue(fixture.alerting.titles.isEmpty)
     }
 
     func testRecentWhoseFileIsGoneExplainsInsteadOfLaunching() throws {
@@ -123,7 +123,7 @@ final class StatusItemControllerTests: XCTestCase {
 
         try performFirstRecent(in: fixture)
 
-        XCTAssertEqual(fixture.alerting.messages, ["File not found"])
+        XCTAssertEqual(fixture.alerting.titles, ["Could not open “\(url.lastPathComponent)”"])
         XCTAssertTrue(fixture.launching.launchedURLs.isEmpty)
     }
 

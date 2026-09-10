@@ -138,10 +138,11 @@ enum AccessibilityAuth {
         }
     }
 
-    /// Why "remove, then add again": TCC ties the grant to the code signature. Debug builds are
-    /// ad-hoc signed, so each rebuild is a new identity and the old row shows as on but does not
-    /// apply; re-adding re-keys it. Developer ID release builds keep a stable identity, so
-    /// release users normally only need steps 3 to 5.
+    /// Why "remove, then add again": TCC ties the grant to the code signature. An ad-hoc-signed
+    /// build (`CODE_SIGN_IDENTITY=-`) has no identity beyond its cdhash, so each rebuild is a new
+    /// one and the old row shows as on but does not apply; re-adding re-keys it. A build signed
+    /// with a certificate — which is what `project.yml` does for Debug as well as Release — keeps
+    /// a stable identity, so those users normally only need steps 3 to 5.
     static func showRelaunchAlert() {
         let choice = runAlert(
             message: "SnapDesk needs Accessibility",
@@ -181,7 +182,12 @@ enum AccessibilityAuth {
         guard !isExplaining else { return .cancel }
         isExplaining = true
         defer { isExplaining = false }
+        return alertPresenter(message, informative, buttons)
+    }
 
+    /// Puts one alert on screen and returns the button. Replaceable so the paths that end in an
+    /// explanation — a vetoed relaunch, above all — can be exercised without a modal.
+    static var alertPresenter: (_ message: String, _ informative: String, _ buttons: [String]) -> NSApplication.ModalResponse = { message, informative, buttons in
         let alert = NSAlert()
         alert.messageText = message
         alert.informativeText = informative
@@ -192,28 +198,40 @@ enum AccessibilityAuth {
         return alert.runModal()
     }
 
-    /// Quits and starts a fresh process, which is what makes a new Accessibility grant apply.
-    static func relaunch() {
+    /// Set between asking to quit and the quit being granted; see `armRelaunchHelperIfPending`.
+    private(set) static var relaunchPending = false
+
+    /// How the helper is started. One seam for both paths, so a test can prove that `relaunch()`
+    /// starts *nothing* — the whole point of deferring it — rather than only that the path it was
+    /// handed went unused.
+    static var helperLauncher: @MainActor (String, pid_t) throws -> Void = launchHelper
+
+    /// Starts the shell helper that waits for this process to exit and reopens the bundle.
+    static func launchHelper(bundlePath: String, pid: pid_t) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", reopenScript, Bundle.main.bundlePath, String(getpid())]
-        do {
-            try process.run()
-        } catch {
-            Log.app.error("relaunch helper failed to start: \(error.localizedDescription, privacy: .public)")
-            runAlert(
-                message: "SnapDesk could not relaunch itself",
-                informative: "Quit SnapDesk and open it again from Applications.\n\n\(error.localizedDescription)",
-                buttons: ["OK"]
-            )
-            return
-        }
-        NSApp.terminate(nil)
+        process.arguments = ["-c", reopenScript, bundlePath, String(pid)]
+        try process.run()
+    }
+
+    /// Quits and starts a fresh process, which is what makes a new Accessibility grant apply.
+    ///
+    /// The helper is *not* started here. It waits for this pid to exit and then reopens the
+    /// bundle, so started before the quit was granted it stayed armed for ten seconds after a
+    /// vetoed quit — an unsaved editor, Cancel — and a real ⌘Q inside that window brought SnapDesk
+    /// straight back. `AppDelegate.applicationShouldTerminate` starts it instead, through
+    /// `armRelaunchHelperIfPending`, once the quit is known to be going ahead.
+    static func relaunch(terminate: @MainActor () -> Void = { NSApp.terminate(nil) }) {
+        relaunchPending = true
+        terminate()
 
         // terminate(nil) returns instead of exiting when the quit is vetoed — an editor with
-        // unsaved changes answers `.terminateCancel`. The helper sees this process still alive
-        // and does nothing, so nothing silently happens: say so, or the user is left believing
-        // SnapDesk restarted and that the permission is now in effect.
+        // unsaved changes answers `.terminateCancel` — or when the helper could not be started,
+        // which `armRelaunchHelperIfPending` has already explained. The first case is the one
+        // the user has not heard about: say so, or they are left believing SnapDesk restarted
+        // and that the permission is now in effect.
+        guard relaunchPending else { return }
+        relaunchPending = false
         Log.app.error("relaunch cancelled: termination was vetoed")
         runAlert(
             message: "SnapDesk did not relaunch",
@@ -222,12 +240,34 @@ enum AccessibilityAuth {
         )
     }
 
+    /// Called from `applicationShouldTerminate` once every veto has had its turn. Starts the helper
+    /// if a relaunch asked for the quit, and answers whether the quit may go ahead: a helper that
+    /// cannot be started is the one failure that has to stop it, because the app would otherwise
+    /// vanish and not come back, which reads as a crash. An ordinary quit is untouched.
+    static func armRelaunchHelperIfPending() -> Bool {
+        guard relaunchPending else { return true }
+        relaunchPending = false
+        do {
+            try helperLauncher(Bundle.main.bundlePath, getpid())
+            return true
+        } catch {
+            Log.app.error("relaunch helper failed to start: \(error.localizedDescription, privacy: .public)")
+            runAlert(
+                message: "SnapDesk could not relaunch itself",
+                informative: "Quit SnapDesk and open it again from Applications.\n\n\(error.localizedDescription)",
+                buttons: ["OK"]
+            )
+            return false
+        }
+    }
+
     /// `open` on a bundle that is still running only activates the running instance, so the
     /// helper waits for this process to actually go away before asking LaunchServices for a new
-    /// one — and gives up quietly if it never does, which is what makes it safe to spawn before
-    /// a quit that something may veto. The bundle path ($0) and pid ($1) are passed as
-    /// arguments, never spliced into the script, so quotes or spaces in the path cannot break
-    /// the command. The 10s ceiling is a backstop; a real quit lands in well under a second.
+    /// one — and gives up after ten seconds if it never does. It is only ever started once the
+    /// quit has been granted (see `armRelaunchHelperIfPending`), so that ceiling is a backstop
+    /// and not a window in which a later ⌘Q would relaunch the app. The bundle path ($0) and pid
+    /// ($1) are passed as arguments, never spliced into the script, so quotes or spaces in the
+    /// path cannot break the command.
     private static let reopenScript = """
     i=0
     while [ "$i" -lt 100 ]; do

@@ -23,6 +23,7 @@ struct LiveDisplay: Equatable, Sendable {
         self.scale = scale
     }
 
+    @MainActor
     init(_ screen: NSScreen) {
         self.init(
             id: Self.identity(for: screen),
@@ -41,15 +42,24 @@ struct LiveDisplay: Equatable, Sendable {
     /// misrenders. The fallbacks are unique but not stable: a display number is reassigned on
     /// reconnect and a frame changes with the arrangement, so a workspace saved against one
     /// rematches later only by name or size.
+    /// Said once per identity: a `LiveDisplay` is rebuilt from `NSScreen` on every read — per
+    /// slot, per correction poll, and inside every zoom read-back — so an unconditional line here
+    /// appeared dozens of times per placed window and buried the errors that mattered.
+    @MainActor
+    private static let fallbackLog = OnceGate()
+
+    @MainActor
     private static func identity(for screen: NSScreen) -> String {
         let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
         if let number, let cfUUID = CGDisplayCreateUUIDFromDisplayID(number)?.takeRetainedValue() {
             return CFUUIDCreateString(nil, cfUUID) as String
         }
         let fallback = fallbackIdentity(number: number, frame: screen.frame)
-        Log.displays.error(
-            "no UUID for display \(screen.localizedName, privacy: .public); identifying it as \(fallback, privacy: .public), which will not survive a reconnect"
-        )
+        if fallbackLog.shouldLog(fallback) {
+            Log.displays.error(
+                "no UUID for display \(screen.localizedName, privacy: .public); identifying it as \(fallback, privacy: .public), which will not survive a reconnect"
+            )
+        }
         return fallback
     }
 

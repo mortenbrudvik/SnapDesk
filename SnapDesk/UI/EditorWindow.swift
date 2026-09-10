@@ -45,7 +45,7 @@ final class AppKitEditorPrompt: EditorPrompting {
 
     func saveDestination(suggestedName: String) -> URL? {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType("com.brudvik.snapdesk") ?? .json]
+        panel.allowedContentTypes = [WorkspaceFileType.contentType]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = suggestedName
         NSApp.activate(ignoringOtherApps: true)
@@ -61,6 +61,29 @@ final class AppKitEditorPrompt: EditorPrompting {
         }
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+}
+
+/// Remembers the workspace name behind each recent file, keyed on the file's modification date,
+/// so the sidebar is not re-reading and re-decoding up to twenty documents on the main thread
+/// every time the window becomes key. A file whose date cannot be read is read every time: a
+/// missing date is not evidence that nothing changed.
+@MainActor
+final class RecentNameCache {
+    private var names: [String: (modified: Date, name: String?)] = [:]
+
+    func name(for url: URL, modified: Date?, load: () -> String?) -> String? {
+        let key = url.resolvingSymlinksInPath().path
+        guard let modified else {
+            names[key] = nil
+            return load()
+        }
+        if let cached = names[key], cached.modified == modified {
+            return cached.name
+        }
+        let name = load()
+        names[key] = (modified, name)
+        return name
     }
 }
 
@@ -94,23 +117,30 @@ final class EditorHost: ObservableObject {
 @MainActor
 final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let recents: RecentsStore
-    private let capture: () -> WorkspaceDocument?
+    private let capture: () -> CaptureOutcome?
     private let launch: (WorkspaceDocument) -> Void
     private let prompt: any EditorPrompting
+    private let beep: @MainActor () -> Void
     let host: EditorHost
     private var titleCancellable: AnyCancellable?
     private var didCenter = false
+    /// How many of this window's modals are on screen; see `presenting(_:)`. A count rather than a
+    /// flag so a prompt raised from inside another one cannot clear it for both.
+    private var promptDepth = 0
+    private let recentNames = RecentNameCache()
 
     init(
         recents: RecentsStore,
-        capture: @escaping () -> WorkspaceDocument?,
+        capture: @escaping () -> CaptureOutcome?,
         launch: @escaping (WorkspaceDocument) -> Void,
-        prompt: any EditorPrompting = AppKitEditorPrompt()
+        prompt: any EditorPrompting = AppKitEditorPrompt(),
+        beep: @escaping @MainActor () -> Void = { NSSound.beep() }
     ) {
         self.recents = recents
         self.capture = capture
         self.launch = launch
         self.prompt = prompt
+        self.beep = beep
         let session = EditorSession(
             document: EditorSession.untitledDocument,
             fileURL: nil,
@@ -143,38 +173,89 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     var session: EditorSession { host.session }
 
-    func open(captured: WorkspaceDocument?) {
+    /// True while one of this window's own modals is up. `AppDelegate` asks before doing the work
+    /// a command needs, so a Capture that is going to be refused does not first sweep every app's
+    /// windows over Accessibility.
+    var isPresentingPrompt: Bool { promptDepth > 0 }
+
+    /// Opens the editor on a fresh capture, or just brings it forward when `captured` is nil.
+    /// Returns whether the capture was taken on: false when the editor refused it (a prompt is
+    /// up) or the user kept their unsaved work instead.
+    @discardableResult
+    func open(captured: WorkspaceDocument?) -> Bool {
+        guard !isPresentingPrompt else {
+            refuseCommandWhilePrompting("open")
+            return false
+        }
         if let captured {
             guard confirmDiscardIfNeeded() else {
                 present()
-                return
+                return false
             }
             replaceSession(
                 EditorSession(document: captured, fileURL: nil, recents: recents)
             )
         }
         present()
+        return captured != nil
+    }
+
+    /// The Capture command: the document goes into the editor and whatever the capture could not
+    /// read is explained on top of it, so a workspace missing an app is never mistaken for a
+    /// complete one.
+    ///
+    /// A capture holding no windows never replaces anything. Whether the desk was empty or
+    /// Accessibility read nothing, installing it would throw away whatever the user had open in
+    /// the editor — and arrive `isDirty == false`, so it would not even look unsaved.
+    func open(capture outcome: CaptureOutcome) {
+        guard !outcome.document.windows.isEmpty else {
+            guard !isPresentingPrompt else {
+                refuseCommandWhilePrompting("capture")
+                return
+            }
+            Log.capture.error("capture read no windows; the editor was left unchanged")
+            present()
+            report(
+                title: "Captured no windows",
+                detail: "\(outcome.report.explanation ?? "SnapDesk found no windows to capture.") The workspace was left unchanged."
+            )
+            return
+        }
+        guard open(captured: outcome.document) else { return }
+        explain(outcome.report)
     }
 
     func recapture() {
-        guard let captured = capture() else { return }
-        // An empty capture means AX read nothing (a hung app, a revoked permission), not that the
-        // user closed every window, so `applyCapture` refuses it rather than blanking the document.
-        if !host.session.applyCapture(captured) {
-            Log.capture.error("recapture read no windows; the document was left unchanged")
-            prompt.report(
-                title: "Captured no windows",
-                detail: """
-                SnapDesk could not read any windows, so nothing was changed. \
-                Check that SnapDesk still has Accessibility access, then try again.
-                """
-            )
+        guard !isPresentingPrompt else {
+            refuseCommandWhilePrompting("recapture")
+            return
         }
+        guard let outcome = capture() else { return }
+        // `applyCapture` refuses an empty capture rather than blanking the document: whether the
+        // desk was really empty or Accessibility read nothing, wiping every configured slot is not
+        // what the user reached for Capture to do. The report says which of the two it was.
+        guard host.session.applyCapture(outcome.document) else {
+            Log.capture.error("recapture read no windows; the document was left unchanged")
+            let reason = outcome.report.explanation
+                ?? "SnapDesk found no windows to capture."
+            report(
+                title: "Captured no windows",
+                detail: "\(reason) The workspace was left unchanged."
+            )
+            return
+        }
+        explain(outcome.report)
+    }
+
+    private func explain(_ report: CaptureReport) {
+        guard let explanation = report.explanation else { return }
+        Log.capture.error("capture was incomplete: \(explanation, privacy: .public)")
+        self.report(title: "Some windows were not captured", detail: explanation)
     }
 
     func prepareForTermination() -> Bool {
         guard host.session.isDirty else { return true }
-        switch prompt.saveChoice(documentName: host.session.document.name) {
+        switch presenting({ prompt.saveChoice(documentName: host.session.document.name) }) {
         case .save:
             return performSave()
         case .discard:
@@ -192,7 +273,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard host.session.isDirty else { return true }
-        switch prompt.saveChoice(documentName: host.session.document.name) {
+        switch presenting({ prompt.saveChoice(documentName: host.session.document.name) }) {
         case .save:
             return performSave()
         case .discard:
@@ -257,8 +338,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [UTType("com.brudvik.snapdesk") ?? .json]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        panel.allowedContentTypes = [WorkspaceFileType.contentType]
+        guard presenting({ panel.runModal() }) == .OK, let url = panel.url else { return }
         openFile(url)
     }
 
@@ -274,7 +355,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private func openFile(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else {
             Log.editor.error("could not open \(url.path, privacy: .public): the file no longer exists")
-            prompt.report(
+            report(
                 title: "Could not open “\(url.lastPathComponent)”",
                 detail: "The file could not be found. It may have been moved, renamed, or deleted."
             )
@@ -289,15 +370,15 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             Log.editor.error(
                 "could not read \(url.path, privacy: .public): \(String(describing: error), privacy: .public)"
             )
-            prompt.report(
-                title: "Could not open “\(url.lastPathComponent)”",
-                detail: WorkspaceOpener.message(for: error)
+            report(
+                title: WorkspaceOpener.openFailureTitle(for: url),
+                detail: WorkspaceOpener.detail(for: error)
             )
         } catch {
             Log.editor.error(
                 "could not read \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
-            prompt.report(
+            report(
                 title: "Could not open “\(url.lastPathComponent)”",
                 detail: error.localizedDescription
             )
@@ -324,7 +405,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard presenting({ alert.runModal() }) == .alertFirstButtonReturn else { return }
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
             recents.remove(url)
@@ -343,7 +424,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             Log.editor.error(
                 "could not trash \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
-            prompt.report(
+            report(
                 title: "Could not move “\(url.lastPathComponent)” to the Trash",
                 detail: error.localizedDescription
             )
@@ -365,7 +446,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             Log.editor.error(
                 "could not save \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
-            prompt.report(
+            report(
                 title: "Could not save “\(url.lastPathComponent)”",
                 detail: error.localizedDescription
             )
@@ -375,7 +456,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     @discardableResult
     private func saveAs() -> Bool {
-        guard let url = prompt.saveDestination(suggestedName: suggestedFileName()) else { return false }
+        guard let url = presenting({ prompt.saveDestination(suggestedName: suggestedFileName()) }) else {
+            return false
+        }
         do {
             try host.session.save(to: url)
             refreshRecents()
@@ -385,7 +468,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             Log.editor.error(
                 "could not save \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
-            prompt.report(
+            report(
                 title: "Could not save “\(url.lastPathComponent)”",
                 detail: error.localizedDescription
             )
@@ -404,7 +487,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     private func confirmDiscardIfNeeded() -> Bool {
         guard host.session.isDirty else { return true }
-        switch prompt.saveChoice(documentName: host.session.document.name) {
+        switch presenting({ prompt.saveChoice(documentName: host.session.document.name) }) {
         case .save:
             return performSave()
         case .discard:
@@ -434,7 +517,7 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             // session on the file and let them save it back out.
             let reason = error.localizedDescription
             Log.editor.error("discard could not re-read \(url.path, privacy: .public): \(reason, privacy: .public)")
-            prompt.report(
+            report(
                 title: "Could not reload “\(url.lastPathComponent)”",
                 detail: """
                 SnapDesk kept the version in the editor because the saved file could not be read. \
@@ -444,16 +527,34 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// Runs a modal prompt or panel and marks the editor as busy with it for the duration. Global
+    /// hot keys keep firing while `runModal` spins the run loop, and their handlers land on the
+    /// main actor inside it — so without this a Capture arriving mid-prompt opened a second prompt
+    /// on top of the first and replaced the session the first one was about, and the user's
+    /// answer was then applied to the wrong document. `open(captured:)` and `recapture()` refuse
+    /// while this is set.
+    private func presenting<T>(_ body: () -> T) -> T {
+        promptDepth += 1
+        defer { promptDepth -= 1 }
+        return body()
+    }
+
+    private func report(title: String, detail: String?) {
+        presenting { prompt.report(title: title, detail: detail) }
+    }
+
+    /// The beep stays: a command that dies silently is indistinguishable from a broken app.
+    func refuseCommandWhilePrompting(_ command: String) {
+        Log.editor.notice("\(command, privacy: .public) refused: the editor has a prompt on screen")
+        beep()
+    }
+
     private func refreshRecents() {
         host.recents = recents.urls.map { url in
-            let name: String
-            if FileManager.default.fileExists(atPath: url.path),
-               let document = try? WorkspaceDocument.load(from: url)
-            {
-                name = document.name
-            } else {
-                name = url.deletingPathExtension().lastPathComponent
-            }
+            let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            let name = recentNames.name(for: url, modified: modified) {
+                try? WorkspaceDocument.load(from: url).name
+            } ?? url.deletingPathExtension().lastPathComponent
             return EditorRecentItem(
                 id: url.resolvingSymlinksInPath().path,
                 url: url,
@@ -483,7 +584,8 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     private func suggestedFileName() -> String {
         let base = Self.windowTitle(host.session.document.name)
-        return base.hasSuffix(".snapdesk") ? base : "\(base).snapdesk"
+        let suffix = ".\(WorkspaceFileType.fileExtension)"
+        return base.hasSuffix(suffix) ? base : base + suffix
     }
 
     private func targetURL() -> URL? {

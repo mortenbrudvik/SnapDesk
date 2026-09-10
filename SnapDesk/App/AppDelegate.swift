@@ -11,27 +11,59 @@ protocol WorkspaceCapturing: AnyObject {
     func captureToEditor()
 }
 
+/// One alert: `title` says what SnapDesk could not do, `detail` names the file and the reason
+/// when there is one. A message without either sent the user guessing which of the three files
+/// they had just double-clicked was the broken one.
 @MainActor
 protocol UserAlerting: AnyObject {
-    func show(message: String)
+    func show(title: String, detail: String?)
 }
+
+/// The restore engine as `AppDelegate` drives it. `LaunchService` is the real one; the seam is what
+/// lets the launch chain, the queue and the HUD wiring be exercised against a restore that can be
+/// held open and released from a test.
+@MainActor
+protocol WorkspaceRestoring: AnyObject {
+    func launch(
+        _ workspace: ValidatedWorkspace,
+        onProgress: @MainActor @escaping ([SlotProgress]) -> Void
+    ) async -> [SlotProgress]
+    func cancel()
+}
+
+extension LaunchService: WorkspaceRestoring {}
+
+@MainActor
+protocol LaunchHUDPresenting: AnyObject {
+    var onCancel: (() -> Void)? { get set }
+    func present(title: String)
+    func update(_ slots: [SlotProgress])
+}
+
+extension LaunchHUDController: LaunchHUDPresenting {}
 
 @MainActor
 struct WorkspaceOpener {
     func open(url: URL, launching: any WorkspaceLaunching, alerting: any UserAlerting) {
         guard FileManager.default.fileExists(atPath: url.path) else {
-            alerting.show(message: "File not found")
+            alerting.show(title: Self.openFailureTitle(for: url), detail: Self.missingFileDetail)
             return
         }
         do {
             _ = try WorkspaceDocument.load(from: url)
             launching.launch(url: url)
         } catch let error as WorkspaceDocumentError {
-            alerting.show(message: Self.message(for: error))
+            alerting.show(title: Self.openFailureTitle(for: url), detail: Self.detail(for: error))
         } catch {
-            alerting.show(message: "Could not read this workspace.")
+            alerting.show(title: Self.openFailureTitle(for: url), detail: error.localizedDescription)
         }
     }
+
+    static func openFailureTitle(for url: URL) -> String {
+        "Could not open “\(url.lastPathComponent)”"
+    }
+
+    static let missingFileDetail = "The file could not be found. It may have been moved, renamed, or deleted."
 
     /// Defers to the error's own text so an older-format file is never described as a newer one,
     /// and so a permission failure is not reported as a parse failure.
@@ -39,20 +71,30 @@ struct WorkspaceOpener {
         error.message
     }
 
-    /// The message to show *instead of* restoring, or nil when the document can be applied.
-    ///
-    /// `open(url:...)` gets this for free from `WorkspaceDocument.load`, but the editor restores a
-    /// document it holds in memory, with no file in between — so that path has to run the same
-    /// check itself or a negative size reaches `AXWindow` unchecked, which is what `validate()`
-    /// exists to stop.
-    static func rejection(of document: WorkspaceDocument) -> String? {
+    /// The message, and under it whatever the error knows about the cause — what the file system
+    /// said, or which key the decoder tripped on — because "Could not read this workspace" alone
+    /// is the same alert for a permission error, a hand-edited typo and a truncated file.
+    static func detail(for error: WorkspaceDocumentError) -> String {
+        guard let cause = error.detail else { return error.message }
+        return "\(error.message)\n\n\(cause)"
+    }
+
+    /// Why a document cannot be restored, in the words the alert shows.
+    struct Rejection: Error, Equatable {
+        let message: String
+    }
+
+    /// The check the editor's in-memory restore needs. `open(url:...)` gets it for free from
+    /// `WorkspaceDocument.load`, but a document held in the editor has no file in between — so
+    /// without this a negative size would reach `AXWindow` unchecked, which is what `validate()`
+    /// exists to stop. `LaunchService` accepts only the `ValidatedWorkspace` this produces.
+    static func validated(_ document: WorkspaceDocument) -> Result<ValidatedWorkspace, Rejection> {
         do {
-            try document.validate()
-            return nil
+            return .success(try document.validated())
         } catch let error as WorkspaceDocumentError {
-            return message(for: error)
+            return .failure(Rejection(message: message(for: error)))
         } catch {
-            return "This workspace cannot be used."
+            return .failure(Rejection(message: "This workspace cannot be used."))
         }
     }
 }
@@ -80,38 +122,87 @@ struct LaunchQueue {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, WorkspaceCapturing, UserAlerting {
-    private let recents = RecentsStore()
-    private let captureService = CaptureService()
-    private let launchService = LaunchService()
+    /// Everything the delegate talks to that a test cannot let it talk to for real: the shipping
+    /// defaults, Accessibility, a restore that moves windows, and modal alerts.
+    @MainActor
+    struct Dependencies {
+        var recents: RecentsStore
+        var capture: @MainActor () -> CaptureOutcome
+        var restorer: any WorkspaceRestoring
+        var hud: any LaunchHUDPresenting
+        var accessibilityTrusted: @MainActor () -> Bool
+        /// Answers a command refused for want of Accessibility. Names the command, so the log
+        /// line and the explanation the user gets both say what was refused.
+        var refuseUntrusted: @MainActor (String) -> Void
+        var presentAlert: @MainActor (_ title: String, _ detail: String?) -> Void
+
+        static var production: Dependencies {
+            let captureService = CaptureService()
+            return Dependencies(
+                recents: RecentsStore(),
+                capture: { captureService.capture() },
+                restorer: LaunchService(),
+                hud: LaunchHUDController(),
+                accessibilityTrusted: { AccessibilityAuth.isEffectivelyTrusted },
+                refuseUntrusted: { command in
+                    // The beep stays: it is the immediate answer to the keystroke, ahead of the
+                    // alert that explains why.
+                    NSSound.beep()
+                    AccessibilityAuth.requestIfNeeded(for: command)
+                },
+                presentAlert: { title, detail in
+                    let alert = NSAlert()
+                    alert.messageText = title
+                    if let detail {
+                        alert.informativeText = detail
+                    }
+                    NSApp.activate(ignoringOtherApps: true)
+                    alert.runModal()
+                }
+            )
+        }
+    }
+
+    private let dependencies: Dependencies
+    private var recents: RecentsStore { dependencies.recents }
     private var statusItem: StatusItemController?
     private var hotkeys: HotkeyCenter?
-    private lazy var launchHUD: LaunchHUDController = {
-        let hud = LaunchHUDController()
-        hud.onCancel = { [weak self] in
-            guard let self else { return }
-            self.launchService.cancel()
-            self.launchQueue.cancelQueued()
-        }
-        return hud
-    }()
 
-    /// Capture passes a new unsaved document; Editor passes nil.
-    var editorOpener: (WorkspaceDocument?) -> Void = { _ in }
-    var hudPresenter: @MainActor @Sendable ([SlotProgress]) -> Void = { _ in }
+    /// Capture passes what it captured; Editor passes nil.
+    var editorOpener: (CaptureOutcome?) -> Void = { _ in }
     var settingsOpener: () -> Void = {}
     private var editorWindow: EditorWindowController?
     private var settingsWindow: SettingsWindowController?
-    private var launchChain: Task<Void, Never>?
+    /// The task the most recently started restore runs in; awaiting it awaits every restore
+    /// chained before it too.
+    private(set) var launchChain: Task<Void, Never>?
     private var launchQueue = LaunchQueue()
 
-    override init() {
+    /// Files handed over before launch has finished. AppKit delivers the open-documents event for
+    /// a double-clicked file *inside* `finishLaunching`, before `applicationDidFinishLaunching`,
+    /// so an alert raised straight from it — an ungranted first run, say — would sit on screen with
+    /// no status item and no hot keys behind it, in an app that has no Dock icon to quit from.
+    private var pendingOpens: [URL] = []
+    private var isLaunchComplete = false
+
+    init(dependencies: Dependencies) {
+        self.dependencies = dependencies
         super.init()
-        editorOpener = { [weak self] document in
-            self?.openEditor(captured: document)
+        dependencies.hud.onCancel = { [weak self] in
+            guard let self else { return }
+            self.dependencies.restorer.cancel()
+            self.launchQueue.cancelQueued()
+        }
+        editorOpener = { [weak self] outcome in
+            self?.openEditor(captured: outcome)
         }
         settingsOpener = { [weak self] in
             self?.openSettings()
         }
+    }
+
+    override convenience init() {
+        self.init(dependencies: .production)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -133,38 +224,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         )
         hotkeys?.start()
         Log.app.info("launched: trusted=\(AccessibilityAuth.isTrusted) effective=\(AccessibilityAuth.isEffectivelyTrusted)")
+        completeLaunch()
+    }
+
+    /// Marks the app as wired and opens whatever arrived before it was. Called from
+    /// `applicationDidFinishLaunching`, which under XCTest returns before doing anything.
+    func completeLaunch() {
+        isLaunchComplete = true
+        let urls = pendingOpens
+        pendingOpens = []
+        for url in urls {
+            open(url)
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls {
-            WorkspaceOpener().open(url: url, launching: self, alerting: self)
+        guard isLaunchComplete else {
+            pendingOpens.append(contentsOf: urls)
+            return
         }
+        for url in urls {
+            open(url)
+        }
+    }
+
+    private func open(_ url: URL) {
+        WorkspaceOpener().open(url: url, launching: self, alerting: self)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if editorWindow?.prepareForTermination() == false {
             return .terminateCancel
         }
+        // Last, once every veto has had its turn: the relaunch helper must only exist for a quit
+        // that is actually going ahead.
+        guard AccessibilityAuth.armRelaunchHelperIfPending() else {
+            return .terminateCancel
+        }
         return .terminateNow
     }
 
     func launch(url: URL) {
-        guard AccessibilityAuth.isEffectivelyTrusted else {
-            refuseUntrusted("restore")
+        guard dependencies.accessibilityTrusted() else {
+            dependencies.refuseUntrusted("restore")
             return
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
-            show(message: "File not found")
+            show(title: WorkspaceOpener.openFailureTitle(for: url), detail: WorkspaceOpener.missingFileDetail)
             return
         }
         do {
-            let document = try WorkspaceDocument.load(from: url)
+            let workspace = try WorkspaceDocument.load(from: url).validated()
             recents.add(url)
-            startLaunch(document)
+            startLaunch(workspace)
         } catch let error as WorkspaceDocumentError {
-            show(message: WorkspaceOpener.message(for: error))
+            show(title: WorkspaceOpener.openFailureTitle(for: url), detail: WorkspaceOpener.detail(for: error))
         } catch {
-            show(message: "Could not read this workspace.")
+            show(title: WorkspaceOpener.openFailureTitle(for: url), detail: error.localizedDescription)
         }
     }
 
@@ -173,36 +289,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     /// without this a negative size or a window naming a display the document does not describe
     /// would reach `AXWindow` directly — which is the hazard `validate()` exists for.
     func launch(document: WorkspaceDocument) {
-        guard AccessibilityAuth.isEffectivelyTrusted else {
-            refuseUntrusted("restore")
+        guard dependencies.accessibilityTrusted() else {
+            dependencies.refuseUntrusted("restore")
             return
         }
-        if let rejection = WorkspaceOpener.rejection(of: document) {
-            show(message: rejection)
-            return
+        switch WorkspaceOpener.validated(document) {
+        case .failure(let rejection):
+            show(title: "Cannot restore “\(document.name)”", detail: rejection.message)
+        case .success(let workspace):
+            startLaunch(workspace)
         }
-        startLaunch(document)
     }
 
     func captureToEditor() {
-        guard AccessibilityAuth.isEffectivelyTrusted else {
-            refuseUntrusted("capture")
+        // Asked before the capture, not after: a capture is a synchronous Accessibility sweep of
+        // every running app on the main thread, and the editor is going to refuse this anyway
+        // while one of its own modals is up — inside whose run loop the hotkey fired.
+        if let editorWindow, editorWindow.isPresentingPrompt {
+            editorWindow.refuseCommandWhilePrompting("capture")
             return
         }
-        editorOpener(captureService.capture())
+        guard dependencies.accessibilityTrusted() else {
+            dependencies.refuseUntrusted("capture")
+            return
+        }
+        editorOpener(dependencies.capture())
     }
 
-    func show(message: String) {
-        let alert = NSAlert()
-        alert.messageText = message
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
+    func show(title: String, detail: String?) {
+        dependencies.presentAlert(title, detail)
     }
 
     /// Chains restores rather than relying on `LaunchService`'s own gate: the HUD reset in
     /// `present(title:)` happens outside that gate, so without the chain a second restore would
     /// wipe the first one's rows while it was still running.
-    private func startLaunch(_ document: WorkspaceDocument) {
+    private func startLaunch(_ workspace: ValidatedWorkspace) {
+        let document = workspace.document
+        // A workspace with no slots has nothing to restore, and a HUD that opens with no rows
+        // and dismisses itself 600ms later reads as a glitch. Say so instead.
+        guard !document.windows.isEmpty else {
+            show(
+                title: "“\(document.name)” has no windows to restore",
+                detail: "Capture a workspace first, or add windows to this one in the editor."
+            )
+            return
+        }
         let previous = launchChain
         let ticket = launchQueue.ticket
         launchChain = Task { [weak self] in
@@ -211,10 +342,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             // A Cancel click while this restore was still waiting its turn was aimed at the queue
             // as a whole; starting now would re-open the HUD the user had just stopped.
             guard self.launchQueue.isStillWanted(ticket) else { return }
-            self.launchHUD.present(title: document.name)
-            let result = await self.launchService.launch(document) { [weak self] progress in
-                self?.launchHUD.update(progress)
-                self?.hudPresenter(progress)
+            self.dependencies.hud.present(title: document.name)
+            let result = await self.dependencies.restorer.launch(workspace) { [weak self] progress in
+                self?.dependencies.hud.update(progress)
             }
             Log.launch.info("\(Self.summary(of: result, workspace: document.name), privacy: .public)")
         }
@@ -227,11 +357,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         let failures = slots.compactMap { slot in
             slot.status.failure.map { "\(slot.name): \($0.displayText)" }
         }
-        let placed = slots.filter { $0.status == .placed }.count
+        let placed = slots.filter(\.status.isPlaced).count
         let cancelled = slots.filter { $0.status == .cancelled }.count
         var outcomes: [String] = []
         if !failures.isEmpty {
             outcomes.append("failed [\(failures.joined(separator: "; "))]")
+        }
+        // A slot can be placed and still not be what the user saved: the HUD says so while it is
+        // up, and this is what is left afterwards — which is when someone comes back to ask why
+        // the layout looks wrong.
+        let guessed = slots.filter { slot in
+            if case .placed(let note) = slot.status { return note.isGuess }
+            return false
+        }
+        if !guessed.isEmpty {
+            outcomes.append("\(guessed.count) on another window [\(guessed.map(\.name).joined(separator: "; "))]")
+        }
+        let substituted = slots.compactMap { slot -> String? in
+            guard case .placed(let note) = slot.status, let display = note.substituteDisplay else { return nil }
+            return "\(slot.name): \(display)"
+        }
+        if !substituted.isEmpty {
+            outcomes.append("\(substituted.count) on another display [\(substituted.joined(separator: "; "))]")
         }
         // Counted separately and never named a failure: the user stopped these on purpose, and a
         // log that calls a deliberate cancel a failure sends the next reader hunting for a bug.
@@ -247,31 +394,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             """
     }
 
-    /// Names the command in the log line and in the explanation the user gets. The beep stays:
-    /// it is the immediate answer to the keystroke, ahead of the alert that explains why.
-    private func refuseUntrusted(_ command: String) {
-        NSSound.beep()
-        AccessibilityAuth.requestIfNeeded(for: command)
-    }
-
-    private func openEditor(captured: WorkspaceDocument?) {
+    private func openEditor(captured: CaptureOutcome?) {
         if editorWindow == nil {
             editorWindow = EditorWindowController(
                 recents: recents,
                 capture: { [weak self] in
                     guard let self else { return nil }
-                    guard AccessibilityAuth.isEffectivelyTrusted else {
-                        self.refuseUntrusted("capture")
+                    guard self.dependencies.accessibilityTrusted() else {
+                        self.dependencies.refuseUntrusted("capture")
                         return nil
                     }
-                    return self.captureService.capture()
+                    return self.dependencies.capture()
                 },
                 launch: { [weak self] document in
                     self?.launch(document: document)
                 }
             )
         }
-        editorWindow?.open(captured: captured)
+        if let captured {
+            editorWindow?.open(capture: captured)
+        } else {
+            editorWindow?.open(captured: nil)
+        }
     }
 
     private func openSettings() {

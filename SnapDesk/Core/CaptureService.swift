@@ -11,29 +11,102 @@ struct RunningAppInfo: Equatable {
     var isSnapDesk: Bool
 }
 
+extension RunningAppInfo {
+    /// What to call this app in something the user reads. `localizedName` can be absent — it is
+    /// nil for a few background and helper processes — and "" is not a name: a report then said
+    /// " did not answer" and named nothing at all.
+    var displayName: String {
+        if !name.isEmpty { return name }
+        if !bundleIdentifier.isEmpty { return bundleIdentifier }
+        return "an unnamed app (pid \(pid))"
+    }
+}
+
 @MainActor
 protocol RunningAppSourcing {
     func apps() -> [RunningAppInfo]
 }
 
+/// One window as Accessibility answered for it — the raw reads, with the two that decide whether
+/// the window can be recorded at all left optional. A failed read must reach `CaptureService` as
+/// a failure and not as a default: `minimized: false` for a window whose state could not be read
+/// goes to disk and is reproduced by every later restore.
 struct AXWindowSnapshot: Equatable {
     var cgWindowID: UInt32?
     var title: String
-    var role: String
     var subrole: String?
-    var cocoaFrame: CGRect
-    var minimized: Bool
-    var zoomed: Bool
-    /// See `CaptureFilter.isChromelessStandardWindow`. Defaulted for the tests that build a
-    /// snapshot to exercise something unrelated to window chrome.
-    var hasTitleBarButtons: Bool = true
+    /// Nil when the position or size could not be read.
+    var cocoaFrame: CGRect?
+    /// Nil when the read failed, as opposed to false for a window that is simply up; see
+    /// `AXWindow.minimizedState`.
+    var minimized: Bool?
+    /// See `CaptureFilter.isChromelessStandardWindow`.
+    var hasTitleBarButtons: Bool
 }
 
 @MainActor
 protocol AXCapturing {
-    /// `displays` is the same list the capture records, and is what zoom is inferred against;
-    /// see `AXWindowCapturer.snapshot(pid:displays:)`.
-    func snapshot(pid: pid_t, displays: [LiveDisplay]) -> [AXWindowSnapshot]
+    /// Every window the app vends, or a throw when the list itself could not be read — an app
+    /// that did not answer within the AX timeout, one that has exited, or a lost trust grant.
+    func windows(pid: pid_t) throws -> [AXWindowSnapshot]
+}
+
+/// What a capture could not record, so the user can be told rather than left with a workspace that
+/// silently lacks an app. Every field is by app *name*, which is what the editor shows.
+struct CaptureReport: Equatable {
+    /// Apps whose window list could not be read at all: they did not answer within the AX timeout,
+    /// exited mid-capture, or Accessibility refused the read.
+    var unreadableApps: [String] = []
+    /// Apps skipped because they have no bundle identifier; restore matches windows by bundle
+    /// identifier, so a slot for one could never be filled.
+    var unidentifiedApps: [String] = []
+    /// Windows skipped because their frame or minimized state could not be read, per app.
+    var skippedWindows: [String: Int] = [:]
+
+    static let clean = CaptureReport()
+
+    var isClean: Bool {
+        unreadableApps.isEmpty && unidentifiedApps.isEmpty && skippedWindows.isEmpty
+    }
+
+    /// One paragraph naming what was left out, for an alert. Nil when nothing was.
+    var explanation: String? {
+        var sentences: [String] = []
+        if !unreadableApps.isEmpty {
+            sentences.append(
+                "\(list(unreadableApps)) did not answer, so \(unreadableApps.count == 1 ? "its" : "their") windows were not captured."
+            )
+        }
+        for (app, count) in skippedWindows.sorted(by: { $0.key < $1.key }) {
+            sentences.append("\(count) window\(count == 1 ? "" : "s") of \(app) could not be read.")
+        }
+        if !unidentifiedApps.isEmpty {
+            sentences.append(
+                "\(list(unidentifiedApps)) \(unidentifiedApps.count == 1 ? "has" : "have") no bundle identifier and cannot be restored."
+            )
+        }
+        guard !sentences.isEmpty else { return nil }
+        if !unreadableApps.isEmpty || !skippedWindows.isEmpty {
+            sentences.append("Try again once every app responds.")
+        }
+        return sentences.joined(separator: " ")
+    }
+
+    private func list(_ names: [String]) -> String {
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return names.dropLast().joined(separator: ", ") + ", and " + names[names.count - 1]
+        }
+    }
+}
+
+/// A capture and what it had to leave out. The document is complete for everything that could be
+/// read; the report says what could not.
+struct CaptureOutcome: Equatable {
+    var document: WorkspaceDocument
+    var report: CaptureReport
 }
 
 @MainActor
@@ -78,28 +151,56 @@ struct CaptureService {
         )
     }
 
-    func capture(name: String = "Untitled") -> WorkspaceDocument {
+    func capture(name: String = "Untitled") -> CaptureOutcome {
         let liveDisplays = displays.displays()
         let onScreen = order.onScreenWindowIDsFrontToBack()
+        var report = CaptureReport()
 
-        var eligible: [(app: RunningAppInfo, window: AXWindowSnapshot)] = []
+        var eligible: [(app: RunningAppInfo, window: AXWindowSnapshot, frame: CGRect, minimized: Bool)] = []
         for app in apps.apps() {
             let isSnapDesk = app.isSnapDesk || app.bundleIdentifier == snapDeskBundleID
             guard app.activationPolicyIsRegular, !isSnapDesk else { continue }
-            for window in ax.snapshot(pid: app.pid, displays: liveDisplays) {
+            // Restore matches windows by bundle identifier, so a slot without one could never be
+            // filled: it would burn the whole window timeout and fail. Not writing it is kinder
+            // than writing it wrong, but only if the user hears that the app was left out.
+            guard !app.bundleIdentifier.isEmpty else {
+                Log.capture.error("skipping \(app.displayName, privacy: .public): it has no bundle identifier")
+                report.unidentifiedApps.append(app.displayName)
+                continue
+            }
+            let windows: [AXWindowSnapshot]
+            do {
+                windows = try ax.windows(pid: app.pid)
+            } catch {
+                // The app did not answer within the AX timeout, exited, or Accessibility refused.
+                // Dropping it silently left a workspace that looked complete and lacked the app
+                // on every later restore, with nothing but a pid in the log to say so.
+                Log.capture.error(
+                    "\(app.displayName, privacy: .public) (pid \(app.pid)) did not answer; its windows were not captured: \(String(describing: error), privacy: .public)"
+                )
+                report.unreadableApps.append(app.displayName)
+                continue
+            }
+            for window in windows {
+                // A failed read must not be captured as a value: `minimized: false` for a window
+                // whose state could not be read goes to disk and is reproduced by every later
+                // restore. The window is skipped instead — and counted, so the user is told.
+                guard let frame = window.cocoaFrame, let minimized = window.minimized else {
+                    Log.capture.error(
+                        "skipping a window of \(app.displayName, privacy: .public): its frame or minimized state could not be read"
+                    )
+                    report.skippedWindows[app.displayName, default: 0] += 1
+                    continue
+                }
                 let candidate = CaptureCandidate(
-                    bundleIdentifier: app.bundleIdentifier,
-                    role: window.role,
                     subrole: window.subrole,
-                    frame: window.cocoaFrame,
+                    frame: frame,
                     isSnapDesk: isSnapDesk,
                     activationPolicyIsRegular: app.activationPolicyIsRegular,
-                    isMinimized: window.minimized,
-                    cgWindowID: window.cgWindowID,
                     hasTitleBarButtons: window.hasTitleBarButtons
                 )
                 if CaptureFilter.isEligible(candidate) {
-                    eligible.append((app, window))
+                    eligible.append((app, window, frame, minimized))
                 }
             }
         }
@@ -108,7 +209,7 @@ struct CaptureService {
             of: eligible.map { item in
                 OrderedWindow(
                     cgWindowID: item.window.cgWindowID,
-                    isMinimized: item.window.minimized
+                    isMinimized: item.minimized
                 )
             },
             onScreenFrontToBack: onScreen
@@ -120,12 +221,12 @@ struct CaptureService {
             // display has no honest frame to record: writing absolute coordinates would give the
             // same four fields a second meaning that only `displayId` distinguishes. This is
             // reachable only with no display attached, when there is nothing to restore onto.
-            guard let assigned = Self.display(containing: item.window.cocoaFrame, in: liveDisplays) else {
+            guard let assigned = Self.display(containing: item.frame, in: liveDisplays) else {
                 Log.capture.error("skipping \(item.app.name, privacy: .public) window: no display to record it against")
                 return nil
             }
             let relative = FramePlacement.relative(
-                cocoa: item.window.cocoaFrame,
+                cocoa: item.frame,
                 visibleFrame: assigned.visibleFrame
             )
             return SavedWindow(
@@ -138,8 +239,10 @@ struct CaptureService {
                 y: relative.origin.y,
                 width: relative.size.width,
                 height: relative.size.height,
-                minimized: item.window.minimized,
-                zoomed: item.window.zoomed,
+                minimized: item.minimized,
+                // Inferred against the display list this capture records, from the very frame it
+                // saves beside it, so the two cannot disagree.
+                zoomed: AXWindow.isZoomed(frame: item.frame, on: liveDisplays),
                 arguments: ""
             )
         }
@@ -154,15 +257,22 @@ struct CaptureService {
             )
         }
 
-        Log.capture.info("captured \(windows.count) of \(ordering.count) eligible window(s) on \(savedDisplays.count) display(s)")
+        if let explanation = report.explanation {
+            Log.capture.error(
+                "captured \(windows.count) window(s) on \(savedDisplays.count) display(s), incomplete: \(explanation, privacy: .public)"
+            )
+        } else {
+            Log.capture.info("captured \(windows.count) of \(ordering.count) eligible window(s) on \(savedDisplays.count) display(s)")
+        }
 
-        return WorkspaceDocument(
+        let document = WorkspaceDocument(
             version: WorkspaceDocument.currentVersion,
             name: name,
             moveExistingWindows: true,
             displays: savedDisplays,
             windows: windows
         )
+        return CaptureOutcome(document: document, report: report)
     }
 
     /// The display a captured window is recorded against. This deliberately diverges from
@@ -171,7 +281,16 @@ struct CaptureService {
     /// against the primary display and comes back on-screen at restore, where `FramePlacement`
     /// clamps it into that display's visible frame. Nil only when no display is attached.
     private static func display(containing frame: CGRect, in live: [LiveDisplay]) -> LiveDisplay? {
-        ScreenGeometry.display(containing: frame, in: live) ?? live.first
+        if let exact = ScreenGeometry.display(containing: frame, in: live) {
+            return exact
+        }
+        if let primary = live.first {
+            Log.capture.notice(
+                "a window at \(frame.debugDescription, privacy: .public) is off every display; recording it against \(primary.name, privacy: .public)"
+            )
+            return primary
+        }
+        return nil
     }
 }
 
@@ -194,27 +313,18 @@ struct NSWorkspaceRunningApps: RunningAppSourcing {
 }
 
 struct AXWindowCapturer: AXCapturing {
-    /// Takes the display list rather than reading `NSScreen` per window. Zoom is inferred from
-    /// the frame against a display's visible frame, and building that list inside the loop would
-    /// re-resolve every screen's UUID — and log a line for every screen that has none — once per
-    /// captured window, against a snapshot of the screens the document does not record.
-    func snapshot(pid: pid_t, displays: [LiveDisplay]) -> [AXWindowSnapshot] {
-        AXWindow.windows(pid: pid).compactMap { window in
-            // A failed AX read must not be captured as `false`: the value goes to disk and every
-            // later restore reproduces it. `minimizedState` distinguishes the two, so a window
-            // whose state cannot be read is skipped rather than saved wrong. Zoom is inferred
-            // from the frame unwrapped here rather than read again, because a window that goes
-            // away between the two reads comes back nil from the second one, and the only thing
-            // left to save then is the lossy `false` this guard exists to keep off disk.
-            guard let cocoaFrame = window.cocoaFrame, let minimized = window.minimizedState else { return nil }
-            return AXWindowSnapshot(
+    /// The raw reads and nothing else: which of them a failed read disqualifies, and what a failed
+    /// list means, is `CaptureService`'s decision, where it is testable against a fake. The
+    /// honest `minimizedState` is passed through rather than `isMinimized`, because the value goes
+    /// to disk and a failed read saved as `false` is reproduced by every later restore.
+    func windows(pid: pid_t) throws -> [AXWindowSnapshot] {
+        try AXWindow.windows(pid: pid).map { window in
+            AXWindowSnapshot(
                 cgWindowID: window.cgWindowID,
                 title: window.title ?? "",
-                role: "AXWindow",
                 subrole: window.subrole,
-                cocoaFrame: cocoaFrame,
-                minimized: minimized,
-                zoomed: AXWindow.isZoomed(frame: cocoaFrame, on: displays),
+                cocoaFrame: window.cocoaFrame,
+                minimized: window.minimizedState,
                 hasTitleBarButtons: window.hasTitleBarButtons
             )
         }

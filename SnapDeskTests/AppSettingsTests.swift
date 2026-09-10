@@ -65,6 +65,30 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(fake.registerCalls, 1)
     }
 
+    /// `SMAppService` is the source of truth and the user can change it in System Settings while
+    /// the pane is open — approve the item, or remove it. Both values were computed once in `init`,
+    /// so the pane kept telling the user to approve an item they had approved, forever.
+    func testRefreshReReadsTheLoginItemStatusWithoutWritingIt() {
+        let fake = FakeLoginItems()
+        fake.statusAfterRegister = .requiresApproval
+        let settings = AppSettings(loginItems: fake)
+        settings.launchAtLogin = true
+        XCTAssertNotNil(settings.loginItemMessage)
+
+        fake.status = .enabled
+        settings.refresh()
+
+        XCTAssertNil(settings.loginItemMessage, "the approval message goes away once the user has approved")
+        XCTAssertTrue(settings.launchAtLogin)
+        XCTAssertEqual(fake.registerCalls, 1, "a refresh reads; it must never register again")
+
+        fake.status = .notRegistered
+        settings.refresh()
+
+        XCTAssertFalse(settings.launchAtLogin, "the toggle follows an item removed in System Settings")
+        XCTAssertEqual(fake.unregisterCalls, 0, "and mirroring that is not an unregister")
+    }
+
     func testTurningOffUnregisters() {
         let fake = FakeLoginItems()
         fake.status = .enabled

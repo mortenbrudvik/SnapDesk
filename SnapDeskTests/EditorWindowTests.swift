@@ -5,15 +5,8 @@ import XCTest
 @MainActor
 final class EditorWindowTests: XCTestCase {
     func testMenuCaptureReplacesVisibleSavedSessionWithUntitled() throws {
-        let recents = RecentsStore(defaults: scratchDefaults())
-        let controller = EditorWindowController(
-            recents: recents,
-            capture: { nil },
-            launch: { _ in }
-        )
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("coding-\(UUID().uuidString).snapdesk")
-        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let controller = makeController(prompt: FakePrompt())
+        let url = temporaryWorkspaceURL()
 
         controller.open(
             captured: makeDocument(
@@ -44,15 +37,11 @@ final class EditorWindowTests: XCTestCase {
             windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
         )
         recaptured.windows[0].x = 40
-        let recents = RecentsStore(defaults: scratchDefaults())
-        let controller = EditorWindowController(
-            recents: recents,
-            capture: { recaptured },
-            launch: { _ in }
+        let controller = makeController(
+            prompt: FakePrompt(),
+            capture: { CaptureOutcome(document: recaptured, report: .clean) }
         )
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("coding-\(UUID().uuidString).snapdesk")
-        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let url = temporaryWorkspaceURL()
 
         var saved = savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")
         saved.arguments = "https://github.com"
@@ -71,11 +60,9 @@ final class EditorWindowTests: XCTestCase {
     func testRecaptureThatReadsNoWindowsKeepsTheDocumentAndTellsTheUser() throws {
         let empty = makeDocument(name: "Untitled", windows: [])
         let prompt = FakePrompt()
-        let controller = EditorWindowController(
-            recents: RecentsStore(defaults: scratchDefaults()),
-            capture: { empty },
-            launch: { _ in },
-            prompt: prompt
+        let controller = makeController(
+            prompt: prompt,
+            capture: { CaptureOutcome(document: empty, report: .clean) }
         )
         let url = temporaryWorkspaceURL()
 
@@ -93,6 +80,171 @@ final class EditorWindowTests: XCTestCase {
         XCTAssertEqual(controller.session.fileURL, url)
         XCTAssertFalse(controller.session.isDirty, "a capture that read nothing must not dirty the workspace")
         XCTAssertEqual(prompt.reports.map(\.title), ["Captured no windows"])
+        XCTAssertEqual(
+            prompt.reports.first?.detail,
+            "SnapDesk found no windows to capture. The workspace was left unchanged.",
+            "a clean empty capture is an empty desk, not a permission problem"
+        )
+    }
+
+    /// An empty capture that *did* lose apps is a different message: the user has to know that the
+    /// capture failed, not that their desk is empty.
+    func testAnEmptyRecaptureThatLostAnAppSaysSo() throws {
+        let empty = makeDocument(name: "Untitled", windows: [])
+        var report = CaptureReport()
+        report.unreadableApps = ["Xcode"]
+        let prompt = FakePrompt()
+        let controller = makeController(
+            prompt: prompt,
+            capture: { CaptureOutcome(document: empty, report: report) }
+        )
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
+        )
+
+        controller.recapture()
+
+        XCTAssertEqual(controller.session.document.windows.map(\.title), ["GitHub"])
+        XCTAssertEqual(prompt.reports.map(\.title), ["Captured no windows"])
+        let detail = try XCTUnwrap(prompt.reports.first?.detail)
+        XCTAssertTrue(detail.contains("Xcode did not answer"), detail)
+        XCTAssertTrue(detail.hasSuffix("The workspace was left unchanged."), detail)
+    }
+
+    /// A recapture that read most of the desk still applies, and then says which app it lost —
+    /// otherwise the workspace looks complete and the missing app is discovered at the next restore.
+    func testARecaptureThatLostAnAppAppliesAndExplains() throws {
+        var report = CaptureReport()
+        report.unreadableApps = ["Xcode"]
+        let recaptured = makeDocument(
+            name: "Untitled",
+            windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+        )
+        let prompt = FakePrompt()
+        let controller = makeController(
+            prompt: prompt,
+            capture: { CaptureOutcome(document: recaptured, report: report) }
+        )
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo")]
+            )
+        )
+
+        controller.recapture()
+
+        XCTAssertEqual(controller.session.document.windows.map(\.title), ["GitHub"])
+        XCTAssertEqual(prompt.reports.map(\.title), ["Some windows were not captured"])
+        let detail = try XCTUnwrap(prompt.reports.first?.detail)
+        XCTAssertTrue(detail.contains("Xcode"), detail)
+    }
+
+    /// The Capture command on a desk that yields no windows: the report is clean, so there was
+    /// nothing to explain — and the empty document replaced the user's unsaved work, arriving
+    /// `isDirty == false` so it did not even look unsaved. `recapture()` refused this from the
+    /// start; the menu and hotkey path did not.
+    func testACaptureWithNoWindowsIsRefusedRatherThanReplacingTheDocument() throws {
+        let prompt = FakePrompt()
+        let controller = makeController(prompt: prompt)
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
+        )
+        XCTAssertTrue(controller.session.isDirty)
+
+        controller.open(capture: CaptureOutcome(document: makeDocument(name: "Untitled", windows: []), report: .clean))
+
+        XCTAssertEqual(controller.session.document.name, "Coding", "the unsaved work must survive")
+        XCTAssertEqual(controller.session.document.windows.map(\.title), ["GitHub"])
+        XCTAssertTrue(controller.session.isDirty)
+        XCTAssertEqual(prompt.reports.map(\.title), ["Captured no windows"])
+        XCTAssertEqual(prompt.saveChoiceCalls, 0, "nothing is being discarded, so there is nothing to confirm")
+    }
+
+    /// A recapture arriving while a prompt is up must not even ask for the capture: it is a
+    /// synchronous Accessibility sweep of every running app, thrown away.
+    func testARecaptureRefusedWhileAPromptIsUpNeverAsksForTheCapture() throws {
+        let prompt = FakePrompt()
+        let captures = Counter()
+        let empty = makeDocument(name: "Untitled", windows: [])
+        let controller = makeController(
+            prompt: prompt,
+            capture: {
+                captures.value += 1
+                return CaptureOutcome(document: empty, report: .clean)
+            }
+        )
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
+        )
+        prompt.choice = .cancel
+        prompt.whileFirstSaveChoiceIsUp = { [weak controller] in controller?.recapture() }
+
+        _ = controller.windowShouldClose(try XCTUnwrap(controller.window))
+
+        XCTAssertEqual(captures.value, 0, "the sweep must not run for a command that is refused")
+        XCTAssertEqual(prompt.saveChoiceCalls, 1)
+    }
+
+    /// The Capture command from the menu or hotkey: the document goes into the editor, and the
+    /// report is shown on top of it.
+    func testOpeningACaptureThatLostAnAppExplainsIt() throws {
+        var report = CaptureReport()
+        report.skippedWindows = ["Safari": 1]
+        let prompt = FakePrompt()
+        let controller = makeController(prompt: prompt)
+
+        controller.open(
+            capture: CaptureOutcome(
+                document: makeDocument(
+                    name: "Untitled",
+                    windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+                ),
+                report: report
+            )
+        )
+
+        XCTAssertEqual(controller.session.document.windows.map(\.title), ["GitHub"])
+        XCTAssertEqual(prompt.reports.map(\.title), ["Some windows were not captured"])
+        XCTAssertTrue(try XCTUnwrap(prompt.reports.first?.detail).contains("1 window of Safari"))
+    }
+
+    /// A capture the user declined — keeping their unsaved work — is not applied, so there is
+    /// nothing to explain either.
+    func testOpeningACaptureThatTheUserDeclinesShowsNoReport() {
+        var report = CaptureReport()
+        report.unreadableApps = ["Xcode"]
+        let prompt = FakePrompt()
+        let controller = makeController(prompt: prompt)
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
+        )
+        prompt.choice = .cancel
+
+        controller.open(
+            capture: CaptureOutcome(
+                document: makeDocument(
+                    name: "Untitled",
+                    windows: [savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo")]
+                ),
+                report: report
+            )
+        )
+
+        XCTAssertEqual(controller.session.document.name, "Coding")
+        XCTAssertTrue(prompt.reports.isEmpty)
     }
 
     func testDiscardingChangesReloadsTheSavedFile() throws {
@@ -311,12 +463,73 @@ final class EditorWindowTests: XCTestCase {
         XCTAssertEqual(controller.session.document.windows.map(\.title), ["GitHub"])
     }
 
-    func testPrepareForTerminationAllowsWhenClean() {
-        let controller = EditorWindowController(
-            recents: RecentsStore(defaults: scratchDefaults()),
-            capture: { nil },
-            launch: { _ in }
+    /// A global hotkey keeps firing while an `NSAlert` spins the run loop, and the Capture handler
+    /// lands on the main actor inside it. Without a guard the capture opened a *second* save prompt
+    /// on top of the close prompt and swapped the session out from under it, so the answer to the
+    /// first prompt was applied to the wrong document: Discard threw the fresh capture away.
+    func testACaptureArrivingWhileTheClosePromptIsUpIsRefusedAndTheAnswerAppliesToTheOriginalSession() throws {
+        let prompt = FakePrompt()
+        let beeps = Counter()
+        let controller = makeController(prompt: prompt, beep: { beeps.value += 1 })
+        let url = temporaryWorkspaceURL()
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
         )
+        try controller.session.save(to: url)
+        controller.session.document.name = "Coding Edited"
+        let captured = makeDocument(
+            name: "Untitled",
+            windows: [savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo")]
+        )
+        prompt.choice = .discard
+        prompt.whileFirstSaveChoiceIsUp = { [weak controller] in
+            controller?.open(captured: captured)
+        }
+
+        XCTAssertTrue(controller.windowShouldClose(try XCTUnwrap(controller.window)))
+
+        XCTAssertEqual(prompt.saveChoiceCalls, 1, "the capture must not open a second prompt on top of the first")
+        XCTAssertEqual(controller.session.fileURL, url, "the answer applies to the document the prompt was about")
+        XCTAssertEqual(controller.session.document.name, "Coding", "Discard reverts the original, not the capture")
+        XCTAssertEqual(beeps.value, 1, "a refused command answers the keystroke rather than dying silently")
+    }
+
+    @MainActor
+    private final class Counter {
+        var value = 0
+    }
+
+    /// The sidebar names each recent by the `name` inside the file, which meant decoding up to
+    /// twenty documents on the main thread every time the window became key. A file that has not
+    /// changed since is not read again.
+    func testTheRecentNameCacheReloadsOnlyWhenTheFileChanged() {
+        let cache = RecentNameCache()
+        let url = URL(fileURLWithPath: "/tmp/coding.snapdesk")
+        let loads = Counter()
+        let first = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(cache.name(for: url, modified: first, load: { loads.value += 1; return "Coding" }), "Coding")
+        XCTAssertEqual(cache.name(for: url, modified: first, load: { loads.value += 1; return "Coding" }), "Coding")
+        XCTAssertEqual(loads.value, 1, "an unchanged file is answered from the cache")
+
+        let later = Date(timeIntervalSince1970: 2_000)
+        XCTAssertEqual(cache.name(for: url, modified: later, load: { loads.value += 1; return "Renamed" }), "Renamed")
+        XCTAssertEqual(loads.value, 2)
+
+        XCTAssertNil(cache.name(for: url, modified: nil, load: { loads.value += 1; return nil }))
+        XCTAssertEqual(loads.value, 3, "a file whose date is unknown is always read")
+
+        // And the unknown date evicted what was cached: the name may have changed while nobody
+        // could tell, so the next read with a date must not answer from a stale entry.
+        XCTAssertEqual(cache.name(for: url, modified: later, load: { loads.value += 1; return "Again" }), "Again")
+        XCTAssertEqual(loads.value, 4)
+    }
+
+    func testPrepareForTerminationAllowsWhenClean() {
+        let controller = makeController(prompt: FakePrompt())
         XCTAssertFalse(controller.session.isDirty)
         XCTAssertTrue(controller.prepareForTermination())
     }
@@ -364,8 +577,18 @@ final class EditorWindowTests: XCTestCase {
         var choice: EditorSaveChoice = .cancel
         var destination: URL?
         private(set) var reports: [Report] = []
+        private(set) var saveChoiceCalls = 0
+        /// Runs inside the first `saveChoice`, standing in for whatever the run loop delivers while
+        /// a real `NSAlert` is modal — a global hotkey handler, above all.
+        var whileFirstSaveChoiceIsUp: (() -> Void)?
 
-        func saveChoice(documentName: String) -> EditorSaveChoice { choice }
+        func saveChoice(documentName: String) -> EditorSaveChoice {
+            saveChoiceCalls += 1
+            if saveChoiceCalls == 1 {
+                whileFirstSaveChoiceIsUp?()
+            }
+            return choice
+        }
 
         func saveDestination(suggestedName: String) -> URL? { destination }
 
@@ -374,13 +597,25 @@ final class EditorWindowTests: XCTestCase {
         }
     }
 
-    private func makeController(prompt: FakePrompt) -> EditorWindowController {
-        EditorWindowController(
+    /// Every controller in this file comes from here, so none can be built with the real
+    /// `AppKitEditorPrompt` by accident: a regression in the dirty-state logic would then put a
+    /// real `NSAlert` up and hang the run instead of failing it. It also closes the window the
+    /// controller shows — `open` activates the app, and twenty tests each leaving a window on
+    /// screen steals focus for the length of the suite.
+    private func makeController(
+        prompt: FakePrompt,
+        capture: @escaping () -> CaptureOutcome? = { nil },
+        beep: @escaping @MainActor () -> Void = {}
+    ) -> EditorWindowController {
+        let controller = EditorWindowController(
             recents: RecentsStore(defaults: scratchDefaults()),
-            capture: { nil },
+            capture: capture,
             launch: { _ in },
-            prompt: prompt
+            prompt: prompt,
+            beep: beep
         )
+        addTeardownBlock { @MainActor in controller.close() }
+        return controller
     }
 
     private func temporaryWorkspaceURL() -> URL {

@@ -26,10 +26,6 @@ enum ScreenGeometry {
         flipped(cocoa, primaryMaxY: primaryMaxY)
     }
 
-    static func axPoint(fromCocoa cocoa: CGPoint, primaryMaxY: CGFloat) -> CGPoint {
-        CGPoint(x: cocoa.x, y: primaryMaxY - cocoa.y)
-    }
-
     /// The display whose frame contains `point`. Exact containment wins, so a point on the edge
     /// shared by two displays goes to the one whose frame includes it. Only when no frame
     /// contains the point does a 1pt tolerance apply: `insetBy(dx: -1, dy: -1)` grows a frame on

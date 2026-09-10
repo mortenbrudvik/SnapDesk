@@ -129,6 +129,30 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertFalse(session.isDirty, "a capture that read nothing must not dirty a saved workspace")
     }
 
+    /// `rowIDs` is what SwiftUI keys the window rows on, and it is zipped with the windows array.
+    /// Every mutation goes through this class today, but the document is a published `var` the
+    /// editor's bindings write to directly, so a count that changes behind its back must not leave
+    /// the two arrays misaligned — a short `rowIDs` silently drops the last rows from the list.
+    func testRowIdentitiesFollowAWindowCountThatChangedThroughTheDocument() {
+        let session = EditorSession(
+            document: makeDocument(windows: [
+                savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub", arguments: ""),
+            ]),
+            fileURL: nil
+        )
+        let original = session.rowIDs
+
+        session.document.windows.append(
+            savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo", arguments: "")
+        )
+
+        XCTAssertEqual(session.rowIDs.count, session.document.windows.count)
+        XCTAssertEqual(Array(session.rowIDs.prefix(1)), original, "existing rows keep their identity")
+
+        session.document.windows.removeAll()
+        XCTAssertEqual(session.rowIDs, [])
+    }
+
     func testRemoveWindowIgnoresAnIndexOutsideTheSlots() {
         let session = EditorSession(
             document: makeDocument(windows: [

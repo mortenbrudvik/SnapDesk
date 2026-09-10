@@ -1,16 +1,24 @@
 import Foundation
 
 enum CaptureFilter {
+    /// An *exclusion* list, not an allow list: a sheet or an `AXDialog` may well be a window the
+    /// user arranged — an app's real main window reports `AXDialog` when it is borderless. What is
+    /// dropped is what a workspace can never restore: `AXUnknown` is a window macOS itself cannot
+    /// classify, `AXFloatingWindow` a palette that follows its app rather than a saved frame, and
+    /// `AXSystemDialog` a system-owned alert that belongs to no workspace. The role is not checked
+    /// here — `AXWindow.init?` is that guard, and nothing else constructs one.
     private static let excludedSubroles: Set<String> = [
         "AXUnknown",
         "AXFloatingWindow",
         "AXSystemDialog",
     ]
 
+    /// The size floor is 8pt on each side. No window a user arranged is that small; what is are
+    /// the 1x1 and zero-size elements some apps keep in their window list, which would otherwise
+    /// become slots the user has to delete by hand.
     static func isEligible(_ c: CaptureCandidate) -> Bool {
         if c.isSnapDesk { return false }
         if !c.activationPolicyIsRegular { return false }
-        if c.role != "AXWindow" { return false }
         if let subrole = c.subrole, excludedSubroles.contains(subrole) { return false }
         if c.frame.width < 8 || c.frame.height < 8 { return false }
         if isChromelessStandardWindow(c) { return false }

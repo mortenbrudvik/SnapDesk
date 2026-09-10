@@ -5,6 +5,19 @@ import os
 /// `log stream --predicate 'subsystem == "<the app's bundle identifier>"' --level debug`,
 /// which is `com.brudvik.snapdesk` unless the bundle identifier in `project.yml` has changed —
 /// the subsystem below follows it rather than a copy of it.
+/// Says yes the first time it is asked about a value and no afterwards. For the lines that
+/// describe a *thing* rather than an event — a display with no UUID, an app whose windows cannot
+/// be read — where the code that notices runs in a poll loop and would otherwise repeat itself
+/// dozens of times per restore and bury everything else in the log.
+@MainActor
+final class OnceGate {
+    private var said: Set<String> = []
+
+    func shouldLog(_ subject: String) -> Bool {
+        said.insert(subject).inserted
+    }
+}
+
 enum Log {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "com.brudvik.snapdesk"
 

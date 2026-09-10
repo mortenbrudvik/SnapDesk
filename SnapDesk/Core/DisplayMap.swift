@@ -2,6 +2,13 @@ import CoreGraphics
 import Foundation
 
 enum DisplayMap {
+    /// Which of the three rules in `match` answered, so a caller can tell a real match from a guess.
+    enum MatchRule: Equatable {
+        case sameID
+        case sameName
+        case closestSize
+    }
+
     /// Finds the screen a saved display refers to now, in descending order of confidence:
     ///
     /// 1. Same UUID — the same physical display, wherever it has been moved to. A real match.
@@ -16,36 +23,52 @@ enum DisplayMap {
     /// `LiveDisplay.identity(for:)`) fall through to the size guess instead of matching each other.
     /// Nil only when no display is attached at all.
     static func match(saved: SavedDisplay, among live: [LiveDisplay]) -> LiveDisplay? {
-        if !saved.id.isEmpty, let byID = live.first(where: { $0.id == saved.id }) {
-            return byID
-        }
-        if !saved.name.isEmpty, let byName = live.first(where: { $0.name == saved.name }) {
-            return byName
-        }
-        let savedSize = saved.visibleFrame.cgRect.size
-        return live.min { a, b in
-            distance(a.visibleFrame.size, savedSize) < distance(b.visibleFrame.size, savedSize)
-        }
+        matchWithRule(saved: saved, among: live)?.display
     }
 
-    /// The screen to place a window on. Logs whenever the answer is not the display the window was
-    /// captured on, because that is the whole explanation for a layout that comes back "wrong":
-    /// every slot still reports success, it is just aimed at a substitute screen.
+    static func matchWithRule(
+        saved: SavedDisplay,
+        among live: [LiveDisplay]
+    ) -> (display: LiveDisplay, rule: MatchRule)? {
+        if !saved.id.isEmpty, let byID = live.first(where: { $0.id == saved.id }) {
+            return (byID, .sameID)
+        }
+        if !saved.name.isEmpty, let byName = live.first(where: { $0.name == saved.name }) {
+            return (byName, .sameName)
+        }
+        let savedSize = saved.visibleFrame.cgRect.size
+        let closest = live.min { a, b in
+            distance(a.visibleFrame.size, savedSize) < distance(b.visibleFrame.size, savedSize)
+        }
+        return closest.map { ($0, .closestSize) }
+    }
+
+    /// The screen to place a window on. `primary` is `NSScreen.screens[0]` — the display that
+    /// anchors the coordinate system — and not `NSScreen.main`, and it is where a window lands
+    /// whose display cannot be found at all. Logs whenever the answer is not the display the
+    /// window was captured on, naming the rule, because "matched by name" is almost certainly the
+    /// screen meant and "closest size" is a guess: the two need different reactions from whoever
+    /// reads the log after a layout came back "wrong" with every slot reporting success.
     static func resolve(
         displayId: String,
         saved: [SavedDisplay],
         live: [LiveDisplay],
-        main: LiveDisplay
+        primary: LiveDisplay
     ) -> LiveDisplay {
         guard let savedDisplay = saved.first(where: { $0.id == displayId }) else {
-            Log.displays.notice("no saved display \"\(displayId, privacy: .public)\" in this workspace; placing its windows on \(main.name, privacy: .public)")
-            return main
+            Log.displays.notice("no saved display \"\(displayId, privacy: .public)\" in this workspace; placing its windows on \(primary.name, privacy: .public)")
+            return primary
         }
-        guard let matched = match(saved: savedDisplay, among: live) else {
-            return main
+        guard let (matched, rule) = matchWithRule(saved: savedDisplay, among: live) else {
+            return primary
         }
-        if matched.id != savedDisplay.id {
-            Log.displays.notice("display \(savedDisplay.name, privacy: .public) is not attached; its windows go to \(matched.name, privacy: .public)")
+        switch rule {
+        case .sameID:
+            break
+        case .sameName:
+            Log.displays.notice("display \(savedDisplay.name, privacy: .public) is not attached by id; its windows go to the display of the same name, \(matched.name, privacy: .public)")
+        case .closestSize:
+            Log.displays.notice("display \(savedDisplay.name, privacy: .public) is not attached; its windows go to \(matched.name, privacy: .public), the closest size — a guess")
         }
         return matched
     }

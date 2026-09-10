@@ -56,8 +56,8 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertEqual(
             result,
             [
-                SlotProgress(index: 0, name: "Safari", status: .placed),
-                SlotProgress(index: 1, name: "Preview", status: .placed),
+                SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
+                SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
             ]
         )
         XCTAssertEqual(snapshots.last, result)
@@ -96,7 +96,7 @@ final class LaunchServiceTests: XCTestCase {
             result,
             [
                 SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
-                SlotProgress(index: 1, name: "Preview", status: .placed),
+                SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
             ]
         )
         XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: previewPath)])
@@ -116,7 +116,7 @@ final class LaunchServiceTests: XCTestCase {
             makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
         ) { _ in }
 
-        XCTAssertEqual(result, [SlotProgress(index: 0, name: "Safari", status: .placed)])
+        XCTAssertEqual(result, [SlotProgress(index: 0, name: "Safari", status: .placed(.clean))])
         XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: safariPath)])
         XCTAssertEqual(placer.placements.map(\.window.id), [safariWindow.id])
     }
@@ -146,11 +146,55 @@ final class LaunchServiceTests: XCTestCase {
             result,
             [
                 SlotProgress(index: 0, name: "Safari", status: .failed(.couldNotPosition)),
-                SlotProgress(index: 1, name: "Preview", status: .placed),
+                SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
             ]
         )
         XCTAssertEqual(placer.placements.map(\.window.id), [previewWindow.id, safariWindow.id])
         XCTAssertEqual(apps.activated, [previewID])
+    }
+
+    /// The frame was written and the window sits on it; only the saved zoom or minimize did not
+    /// take. "Could not position" for that sends the user looking at a window that is exactly
+    /// where they saved it, so the slot gets a failure that says what is actually missing.
+    func testASavedStateThatDidNotTakeIsReportedAsSuchNotAsCouldNotPosition() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [
+            safariID: URL(fileURLWithPath: safariPath),
+            previewID: URL(fileURLWithPath: previewPath),
+        ]
+        let windows = FakeWindows(windowsByBundle: [
+            safariID: [safariWindow],
+            previewID: [previewWindow],
+        ])
+        let placer = FakePlacer()
+        placer.outcomes = [safariWindow.id: .stateNotRestored]
+        let service = makeService(launcher: launcher, windows: windows, placer: placer)
+
+        let result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.stateNotRestored), .placed(.clean)])
+    }
+
+    /// The window a slot claimed can be gone by the time the placement pass reaches it — closed,
+    /// or retitled under the title-based fallback identity. That is a different problem from a
+    /// refused write, and the HUD has to be able to say so.
+    func testAWindowThatVanishedBeforePlacementIsReportedAsGone() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [
+            safariID: URL(fileURLWithPath: safariPath),
+            previewID: URL(fileURLWithPath: previewPath),
+        ]
+        let windows = FakeWindows(windowsByBundle: [
+            safariID: [safariWindow],
+            previewID: [previewWindow],
+        ])
+        let placer = FakePlacer()
+        placer.outcomes = [safariWindow.id: .windowGone]
+        let service = makeService(launcher: launcher, windows: windows, placer: placer)
+
+        let result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.windowGone), .placed(.clean)])
     }
 
     /// Cancelling is something the user did, so the slots it stops report `.cancelled` rather than
@@ -198,7 +242,7 @@ final class LaunchServiceTests: XCTestCase {
         let service = makeService(launcher: launcher, windows: windows)
 
         let first = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
-        XCTAssertTrue(first.allSatisfy { $0.status == .placed })
+        XCTAssertTrue(first.allSatisfy { $0.status == .placed(.clean) })
 
         service.cancel()
 
@@ -207,8 +251,8 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertEqual(
             second,
             [
-                SlotProgress(index: 0, name: "Safari", status: .placed),
-                SlotProgress(index: 1, name: "Preview", status: .placed),
+                SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
+                SlotProgress(index: 1, name: "Preview", status: .placed(.clean)),
             ]
         )
     }
@@ -232,13 +276,11 @@ final class LaunchServiceTests: XCTestCase {
         let document = makeDocument(moveExistingWindows: false)
 
         let running = Task { @MainActor in await service.launch(document) { _ in } }
-        while openGate.arrivals == 0 {
-            await Task.yield()
-        }
+        await yieldUntil("the first restore reaches the launcher") { openGate.arrivals > 0 }
         let queued = Task { @MainActor in await service.launch(document) { _ in } }
         // Lets the queued restore reach the gate, which is what makes it something a cancel can
         // still be aimed at.
-        await Task.yield()
+        await yieldUntil("the second restore reaches the gate") { service.queuedRestores > 0 }
 
         service.cancel()
         // Nothing releases a second parking, and the running restore has one more slot to open.
@@ -278,13 +320,56 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertEqual(
             result,
             [
-                SlotProgress(index: 0, name: "Safari", status: .placed),
+                SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
                 SlotProgress(index: 1, name: "Preview", status: .failed(.launchTimedOut)),
             ]
         )
         XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: safariPath)])
         XCTAssertEqual(placer.placements.map(\.window.id), [safariWindow.id])
         XCTAssertEqual(apps.activated, [safariID])
+    }
+
+    /// `NSWorkspace.openApplication` does not observe cancellation: its completion handler arrives
+    /// when LaunchServices is done, however long that takes. Racing it inside a structured task
+    /// group therefore bounded the *error* and not the wait — the group had to await the launch
+    /// before it could rethrow the timeout — so a bundle that took 90s to open held the whole
+    /// restore, and the HUD's Cancel button, for those 90s. The fake above honours cancellation,
+    /// which is exactly why `testLaunchTimeoutFailsSlotAndContinues` could not see this.
+    func testALaunchThatIgnoresCancellationStillTimesOutOnSchedule() async {
+        let launcher = FakeLauncher()
+        let safariURL = URL(fileURLWithPath: safariPath)
+        launcher.urls = [
+            safariID: safariURL,
+            previewID: URL(fileURLWithPath: previewPath),
+        ]
+        launcher.neverReturnURLs = [safariURL]
+        addTeardownBlock { @MainActor in launcher.releaseParked() }
+        let windows = FakeWindows(windowsByBundle: [
+            safariID: [safariWindow],
+            previewID: [previewWindow],
+        ])
+        let service = makeService(launcher: launcher, windows: windows, launchTimeout: .milliseconds(50))
+        let outcome = Outcome()
+
+        let run = Task { @MainActor in
+            outcome.result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
+        }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while outcome.result == nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+
+        guard let result = outcome.result else {
+            run.cancel()
+            return XCTFail("the restore must not wait for a launch that never returns")
+        }
+        XCTAssertEqual(result.map(\.status), [.failed(.launchTimedOut), .placed(.clean)])
+        XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: previewPath)])
+    }
+
+    @MainActor
+    private final class Outcome {
+        var result: [SlotProgress]?
     }
 
     /// A rejected open — Gatekeeper, a damaged bundle — is a different failure from a hang, and the
@@ -341,8 +426,8 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertEqual(
             result,
             [
-                SlotProgress(index: 0, name: "Safari", status: .placed),
-                SlotProgress(index: 1, name: "Safari", status: .placed),
+                SlotProgress(index: 0, name: "Safari", status: .placed(.clean)),
+                SlotProgress(index: 1, name: "Safari", status: .placed(.clean)),
             ]
         )
         XCTAssertEqual(launcher.opens.count, 1)
@@ -358,6 +443,196 @@ final class LaunchServiceTests: XCTestCase {
                 CGRect(x: 0, y: 38, width: 800, height: 900),
             ]
         )
+    }
+
+    /// Turning "move existing windows" off means the user's live windows are left alone and every
+    /// slot gets a fresh instance. The catalog lists every process running under a bundle id, so
+    /// without a pid filter the restore claimed the user's own "GitHub" window by exact title —
+    /// and moved it — before the new instance had vended anything; the pre-existing windows also
+    /// counted as vended, so nothing waited for the new instance at all.
+    func testANewInstanceRestoreLeavesThePreExistingInstancesWindowsAlone() async {
+        let existing = MatchableWindow(id: "safari-old", pid: 100, bundleIdentifier: safariID, title: "GitHub")
+        let fresh = MatchableWindow(id: "safari-new", pid: 200, bundleIdentifier: safariID, title: "GitHub")
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let apps = FakeApps()
+        apps.running = [safariID]
+        apps.pids = [safariID: [100]]
+        let windows = FakeWindows(windowsByBundle: [safariID: [existing]])
+        let clock = ScriptedClock()
+        windows.vend(fresh, afterPolls: 2, on: clock)
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, apps: apps, windows: windows, placer: placer, clock: clock)
+
+        let result = await service.launch(
+            makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean)])
+        XCTAssertEqual(placer.placements.map(\.window.id), [fresh.id], "the user's own window must not be moved")
+        XCTAssertEqual(launcher.opens.count, 1)
+        XCTAssertTrue(launcher.opens[0].configuration.createsNewApplicationInstance)
+        XCTAssertEqual(apps.activatedPIDs, [200], "the instance holding the restored window comes forward, not the old one")
+    }
+
+    /// Plenty of apps ignore `createsNewApplicationInstance` and simply activate the copy that is
+    /// already running. Every window then belongs to the pre-existing pid, the filter removes them
+    /// all — correctly, the user asked for their own windows to be left alone — and the slot has
+    /// nothing to take. Reporting "No window" for an app with six windows on screen sends the user
+    /// looking for a bug; this is a different thing and says so.
+    func testAnAppThatRefusesToOpenANewInstanceIsReportedAsSuchNotAsNoWindow() async {
+        let existing = MatchableWindow(id: "safari-old", pid: 100, bundleIdentifier: safariID, title: "GitHub")
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let apps = FakeApps()
+        apps.running = [safariID]
+        apps.pids = [safariID: [100]]
+        let windows = FakeWindows(windowsByBundle: [safariID: [existing]])
+        let clock = ScriptedClock()
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, apps: apps, windows: windows, placer: placer, clock: clock)
+
+        let result = await service.launch(
+            makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.noNewWindow)])
+        XCTAssertTrue(placer.placements.isEmpty, "the window the user already had must not be moved")
+    }
+
+    /// The window list being unreadable at placement time is not the window having disappeared:
+    /// one is an app that stopped answering, the other a window that closed. Both arrived as the
+    /// same `nil`, and so as the same "Window disappeared".
+    func testAWindowListThatCannotBeReadAtPlacementTimeIsNotReportedAsAClosedWindow() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let placer = FakePlacer()
+        placer.outcomes = [safariWindow.id: .windowsUnreadable]
+        let service = makeService(launcher: launcher, windows: windows, placer: placer)
+
+        let result = await service.launch(
+            makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.windowsUnreadable)])
+    }
+
+    /// A Cancel while a slot is mid-launch used to wait out that open — up to the launch timeout,
+    /// per slot — because nothing woke the wait. The HUD's Cancel button is the one control that
+    /// has to answer immediately.
+    func testCancelDuringASlowLaunchIsActedOnAtOnce() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [
+            safariID: URL(fileURLWithPath: safariPath),
+            previewID: URL(fileURLWithPath: previewPath),
+        ]
+        let openGate = OpenGate()
+        launcher.openGate = openGate
+        addTeardownBlock { @MainActor in openGate.releaseAll() }
+        let windows = FakeWindows(windowsByBundle: [
+            safariID: [safariWindow],
+            previewID: [previewWindow],
+        ])
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, windows: windows, placer: placer)
+
+        let outcome = Outcome()
+        let run = Task { @MainActor in
+            outcome.result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
+        }
+        await yieldUntil("the first launch to be in flight") { openGate.arrivals > 0 }
+
+        service.cancel()
+        // Deliberately not `await run.value`: if the cancel does not wake the open, that awaits a
+        // continuation nobody will ever resume and the whole suite wedges with no output. This
+        // fails instead.
+        await yieldUntil("the restore to come back without waiting for the open") { outcome.result != nil }
+        run.cancel()
+
+        XCTAssertEqual(outcome.result?.map(\.status), [.cancelled, .cancelled])
+        XCTAssertTrue(placer.placements.isEmpty)
+        // Nothing released the gate: the restore came back without sitting through the open.
+        XCTAssertEqual(openGate.arrivals, 1)
+    }
+
+    /// Two new-instance slots of one app. The pids to exclude are read *once*, before the first
+    /// launch — re-reading before the second would exclude the instance the first slot just
+    /// created, and strand its window. Nothing else in the suite can tell those two apart.
+    func testASecondNewInstanceOfTheSameAppIsNotMistakenForThePreExistingOne() async {
+        let existing = MatchableWindow(id: "safari-old", pid: 100, bundleIdentifier: safariID, title: "Old")
+        let firstNew = MatchableWindow(id: "safari-new-1", pid: 200, bundleIdentifier: safariID, title: "GitHub")
+        let secondNew = MatchableWindow(id: "safari-new-2", pid: 300, bundleIdentifier: safariID, title: "Apple")
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let apps = FakeApps()
+        apps.running = [safariID]
+        apps.pids = [safariID: [100]]
+        let windows = FakeWindows(windowsByBundle: [safariID: [existing]])
+        let clock = ScriptedClock()
+        // Each launch brings up an instance, and the pid list grows the way the real one would.
+        launcher.onOpen = { _ in
+            if windows.windowsByBundle[self.safariID]?.count == 1 {
+                windows.windowsByBundle[self.safariID]?.append(firstNew)
+                apps.pids[self.safariID] = [100, 200]
+            } else {
+                windows.windowsByBundle[self.safariID]?.append(secondNew)
+                apps.pids[self.safariID] = [100, 200, 300]
+            }
+        }
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, apps: apps, windows: windows, placer: placer, clock: clock)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: false,
+                windows: [
+                    safariSlot(title: "GitHub", x: 0, y: 0, width: 800, height: 900),
+                    safariSlot(title: "Apple", x: 100, y: 50, width: 400, height: 300),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)])
+        XCTAssertEqual(launcher.opens.count, 2)
+        XCTAssertEqual(
+            placer.placements.map(\.window.id),
+            [secondNew.id, firstNew.id],
+            "both new instances' windows are claimable; only the pre-existing one is off limits"
+        )
+        XCTAssertFalse(placer.placements.contains { $0.window.id == existing.id })
+    }
+
+    /// The reuse path, end to end: a running app is not launched again, it is un-hidden (a ⌘H'd
+    /// app's windows would otherwise be placed and stay invisible), and its existing windows —
+    /// which the new-instance path filters out — are exactly the ones a reuse claims.
+    func testAReusedRunningAppIsUnhiddenNotRelaunchedAndItsOwnWindowsAreClaimed() async {
+        let github = MatchableWindow(id: "safari-1", pid: 100, bundleIdentifier: safariID, title: "GitHub")
+        let apple = MatchableWindow(id: "safari-2", pid: 100, bundleIdentifier: safariID, title: "Apple")
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let apps = FakeApps()
+        apps.running = [safariID]
+        apps.pids = [safariID: [100]]
+        let windows = FakeWindows(windowsByBundle: [safariID: [github, apple]])
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, apps: apps, windows: windows, placer: placer)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "GitHub", x: 0, y: 0, width: 800, height: 900),
+                    safariSlot(title: "Apple", x: 100, y: 50, width: 400, height: 300),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)])
+        XCTAssertTrue(launcher.opens.isEmpty, "a running app is reused, never launched again")
+        XCTAssertEqual(apps.unhidden, [safariID, safariID])
+        XCTAssertEqual(placer.placements.map(\.window.id), [apple.id, github.id])
+        XCTAssertEqual(apps.activatedPIDs, [100])
     }
 
     /// Three saved Safari windows, one live window. The low-index slots are the ones the user
@@ -387,9 +662,10 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
+        // Slot 0 took the one window as a leftover, so its "Placed" carries the guess note.
         XCTAssertEqual(
             result.map(\.status),
-            [.placed, .failed(.noWindow), .failed(.noWindow)]
+            [.placed(PlacementNote(isGuess: true, substituteDisplay: nil)), .failed(.noWindow), .failed(.noWindow)]
         )
         XCTAssertEqual(placer.placements.map(\.window.id), [safariWindow.id])
         XCTAssertEqual(placer.placements.map(\.cocoaFrame), [CGRect(x: 0, y: 38, width: 800, height: 900)])
@@ -420,7 +696,7 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
-        XCTAssertEqual(result.map(\.status), [.failed(.noWindow), .placed, .placed])
+        XCTAssertEqual(result.map(\.status), [.failed(.noWindow), .placed(.clean), .placed(.clean)])
         // Placement walks the slots back-to-front, so News is written before Mail.
         XCTAssertEqual(placer.placements.map(\.window.id), [news.id, mail.id])
         XCTAssertEqual(
@@ -451,7 +727,7 @@ final class LaunchServiceTests: XCTestCase {
         _ = await service.launch(makeDocument(moveExistingWindows: false)) { snapshots.append($0) }
 
         let firstPlacement = snapshots.firstIndex { snapshot in
-            snapshot.contains { $0.status == .placed }
+            snapshot.contains { $0.status == .placed(.clean) }
         }
         let bothMatched = snapshots.firstIndex { snapshot in
             snapshot.allSatisfy { $0.status == .matched }
@@ -537,7 +813,11 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
-        XCTAssertEqual(result.map(\.status), [.placed])
+        XCTAssertEqual(
+            result.map(\.status),
+            [.placed(PlacementNote(isGuess: false, substituteDisplay: display.name))],
+            "a window aimed at a substitute screen is placed, and says which screen it went to"
+        )
         XCTAssertEqual(placer.placements.map(\.cocoaFrame), [CGRect(x: 50, y: 88, width: 200, height: 150)])
     }
 
@@ -569,7 +849,7 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
-        XCTAssertEqual(result.map(\.status), [.placed])
+        XCTAssertEqual(result.map(\.status), [.placed(.clean)])
         XCTAssertEqual(placer.placements.map(\.cocoaFrame), [CGRect(x: 50, y: 44, width: 200, height: 150)])
     }
 
@@ -593,10 +873,9 @@ final class LaunchServiceTests: XCTestCase {
 
         let result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
 
-        XCTAssertEqual(
-            result.map(\.status),
-            [.failed(.couldNotPosition), .failed(.couldNotPosition)]
-        )
+        // Not "could not position", which describes a window that refused a write: with nothing
+        // attached there is no frame to compute in the first place.
+        XCTAssertEqual(result.map(\.status), [.failed(.noDisplay), .failed(.noDisplay)])
         XCTAssertTrue(placer.placements.isEmpty)
     }
 
@@ -606,7 +885,10 @@ final class LaunchServiceTests: XCTestCase {
         let launcher = FakeLauncher()
         launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
         let windows = FakeWindows(windowsByBundle: [:])
-        let clock = ScriptedClock()
+        // A frozen clock, so only the poll *count* can end this wait: under a clock whose `now`
+        // advances, the wall-clock deadline would expire at the same moment and the assertion
+        // below would hold even with the count removed.
+        let clock = CountingClock()
         let service = makeService(
             launcher: launcher,
             windows: windows,
@@ -619,9 +901,55 @@ final class LaunchServiceTests: XCTestCase {
         ) { _ in }
 
         XCTAssertEqual(result.map(\.status), [.failed(.noWindow)])
-        // 250ms of 100ms polls. The wait is counted in polls rather than measured against a wall
-        // clock so that it is the same length whichever `Clock` is driving it.
+        // 250ms of 100ms polls.
         XCTAssertEqual(clock.sleeps, 3)
+    }
+
+    /// The window wait was bounded by a poll count, and each poll reads Accessibility synchronously
+    /// on the main thread — up to `AXWindow.messagingTimeout` per read against a hung app. Eighty
+    /// polls at half a second each is forty seconds with the main actor blocked, not the eight the
+    /// timeout promises, so the wait has to answer to the clock as well as to the count.
+    func testTheWindowWaitIsBoundedByWallClockTimeWhenEachPollIsSlow() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let windows = FakeWindows(windowsByBundle: [:])
+        let clock = ScriptedClock()
+        windows.onRead = { clock.advance(by: .milliseconds(500)) }
+        let service = makeService(launcher: launcher, windows: windows, clock: clock)
+
+        let result = await service.launch(
+            makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.noWindow)])
+        XCTAssertGreaterThanOrEqual(clock.elapsed, .seconds(8), "the budget is still spent in full")
+        XCTAssertLessThan(
+            clock.elapsed,
+            .seconds(8) + .milliseconds(600),
+            "and overrun by at most one slow poll, not by the whole poll count: \(clock.sleeps) sleeps"
+        )
+    }
+
+    /// Nothing cancels the task a restore runs in today, but a restore inside a cancelled task
+    /// would otherwise degrade badly rather than stop: `Task.sleep` throws at once when its task
+    /// is cancelled, so every timed wait becomes a zero-delay loop that burns the poll budget
+    /// instantly and reports `.noWindow` for slots that merely had not vended yet.
+    func testACancelledTaskEndsTheRestoreAsCancelled() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let windows = FakeWindows(windowsByBundle: [:])
+        let clock = ScriptedClock()
+        let service = makeService(launcher: launcher, windows: windows, clock: clock)
+        let document = makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+
+        let run = Task { @MainActor in await service.launch(document) { _ in } }
+        clock.onSleep = { count in
+            if count == 2 { run.cancel() }
+        }
+        let result = await run.value
+
+        XCTAssertEqual(result.map(\.status), [.cancelled])
+        XCTAssertEqual(clock.sleeps, 2, "cut short at the poll the cancellation landed in")
     }
 
     /// The scenario a cold launch is made of: an app hands its windows over one at a time, in an
@@ -651,7 +979,7 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
-        XCTAssertEqual(result.map(\.status), [.placed, .placed])
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)])
         // Paired ids and frames, not a set: swapping the two windows would leave both slots placed
         // and every count unchanged. Placement walks the slots back-to-front, so Mail is written
         // first.
@@ -695,7 +1023,7 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
-        XCTAssertEqual(result.map(\.status), [.placed, .placed, .placed])
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean), .placed(.clean)])
         XCTAssertEqual(placer.placements.map(\.window.id), [news.id, mail.id, docs.id])
         XCTAssertEqual(
             placer.placements.map(\.cocoaFrame),
@@ -731,12 +1059,15 @@ final class LaunchServiceTests: XCTestCase {
                 ]
             )
         ) { progress in
-            if sleepsWhenPlaced == nil, progress.allSatisfy({ $0.status == .placed }) {
+            if sleepsWhenPlaced == nil, progress.allSatisfy(\.status.isPlaced) {
                 sleepsWhenPlaced = clock.sleeps
             }
         }
 
-        XCTAssertEqual(result.map(\.status), [.placed, .placed])
+        // Both slots settled for a window they are not named after, and nothing corrected that:
+        // the HUD has to say so, or a layout with two swapped windows reads as a clean restore.
+        let guess = PlacementNote(isGuess: true, substituteDisplay: nil)
+        XCTAssertEqual(result.map(\.status), [.placed(guess), .placed(guess)])
         // The layout the user is waiting for goes up without a single sleep. Both slots settled for
         // a window they are not named after, so the correction pass below does run afterwards — but
         // it runs after placement and after `activateFrontmost`, so it costs the restore nothing
@@ -779,7 +1110,11 @@ final class LaunchServiceTests: XCTestCase {
             )
         ) { _ in }
 
-        XCTAssertEqual(result.map(\.status), [.placed, .placed])
+        XCTAssertEqual(
+            result.map(\.status),
+            [.placed(.clean), .placed(.clean)],
+            "the correction replaced the guess, so slot 0 is no longer reported as holding another window"
+        )
         let placedIDs = placer.placements.map(\.window.id)
         XCTAssertTrue(
             placedIDs.contains(docs.id),
@@ -843,7 +1178,8 @@ final class LaunchServiceTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(result.map(\.status), [.placed, .placed, .failed(.noWindow)])
+        let guess = PlacementNote(isGuess: true, substituteDisplay: nil)
+        XCTAssertEqual(result.map(\.status), [.placed(guess), .placed(guess), .failed(.noWindow)])
         XCTAssertEqual(
             safariSettledAfter,
             0,
@@ -874,6 +1210,128 @@ final class LaunchServiceTests: XCTestCase {
         // Cut short at the poll the click landed in, not run out to the 8s timeout's 80 polls.
         XCTAssertEqual(clock.sleeps, 2)
         XCTAssertTrue(placer.placements.isEmpty)
+    }
+
+    /// The moment a Cancel actually lands during a real restore: placement, where the real placer
+    /// blocks up to two seconds per window waiting for a deminiaturize. The slot being placed and
+    /// everything after it end `.cancelled`, and nothing is brought forward afterwards — the user
+    /// stopped the restore, and activating an app they did not ask for is the restore carrying on.
+    func testCancelDuringAPlacementEndsTheRestoreWithoutActivatingAnything() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [
+            safariID: URL(fileURLWithPath: safariPath),
+            previewID: URL(fileURLWithPath: previewPath),
+            notesID: URL(fileURLWithPath: notesPath),
+        ]
+        let apps = FakeApps()
+        let windows = FakeWindows(windowsByBundle: [
+            safariID: [safariWindow],
+            previewID: [previewWindow],
+            notesID: [notesWindow],
+        ])
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, apps: apps, windows: windows, placer: placer)
+        // Placement walks back to front: Notes is placed, and the Cancel lands during it — a
+        // placement that *succeeds*, which is the common case and the one that used to fall
+        // through to `activateFrontmost` anyway.
+        placer.onPlace = { window in
+            if window.id == self.notesWindow.id { service.cancel() }
+        }
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: false,
+                windows: [
+                    safariSlot(title: "GitHub"),
+                    savedWindow(bundleIdentifier: previewID, bundlePath: previewPath, name: "Preview", title: "Notes", x: 100, y: 50, width: 400, height: 300),
+                    savedWindow(bundleIdentifier: notesID, bundlePath: notesPath, name: "Notes", title: "Inbox", x: 200, y: 60, width: 300, height: 200),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.cancelled, .cancelled, .placed(.clean)])
+        XCTAssertEqual(placer.placements.map(\.window.id), [notesWindow.id], "the restore stops where the click landed")
+        XCTAssertTrue(apps.activated.isEmpty, "a cancelled restore must not bring an app forward")
+    }
+
+    /// A correction whose placement is refused — the window closed again between the read and the
+    /// write — must not consume the slot's chance: the window can vend once more inside the
+    /// correction window, and the slot is still holding a guess until it does.
+    func testARefusedCorrectionLeavesTheSlotOpenToALaterWindow() async {
+        let startPage = MatchableWindow(id: "safari-start", bundleIdentifier: safariID, title: "Startside")
+        let mail = MatchableWindow(id: "safari-mail", bundleIdentifier: safariID, title: "Mail")
+        let docsFirst = MatchableWindow(id: "safari-docs-1", bundleIdentifier: safariID, title: "Docs")
+        let docsAgain = MatchableWindow(id: "safari-docs-2", bundleIdentifier: safariID, title: "Docs")
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let windows = FakeWindows(windowsByBundle: [safariID: [mail, startPage]])
+        let clock = ScriptedClock()
+        windows.vend(docsFirst, afterPolls: 3, on: clock)
+        windows.vend(docsAgain, afterPolls: 6, on: clock)
+        let placer = FakePlacer()
+        placer.outcomes = [docsFirst.id: .windowGone]
+        let service = makeService(launcher: launcher, windows: windows, placer: placer, clock: clock)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "Docs", x: 0, y: 0, width: 800, height: 900),
+                    safariSlot(title: "Mail", x: 100, y: 50, width: 400, height: 300),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)], "the second Docs window corrected the guess")
+        XCTAssertEqual(placer.placements.map(\.window.id), [mail.id, startPage.id, docsFirst.id, docsAgain.id])
+    }
+
+    /// The correction window is 4s of 100ms polls, and a window arriving after it is left alone.
+    func testTheCorrectionWindowIsBoundedAndALateWindowIsNotSwappedIn() async {
+        let first = MatchableWindow(id: "safari-1", bundleIdentifier: safariID, title: "Renamed one")
+        let second = MatchableWindow(id: "safari-2", bundleIdentifier: safariID, title: "Renamed two")
+        let docs = MatchableWindow(id: "safari-docs", bundleIdentifier: safariID, title: "Docs")
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let windows = FakeWindows(windowsByBundle: [safariID: [first, second]])
+        let clock = ScriptedClock()
+        windows.vend(docs, afterPolls: 41, on: clock)
+        let placer = FakePlacer()
+        let service = makeService(launcher: launcher, windows: windows, placer: placer, clock: clock)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "Docs", x: 0, y: 0, width: 800, height: 900),
+                    safariSlot(title: "Mail", x: 100, y: 50, width: 400, height: 300),
+                ]
+            )
+        ) { _ in }
+
+        let guess = PlacementNote(isGuess: true, substituteDisplay: nil)
+        XCTAssertEqual(result.map(\.status), [.placed(guess), .placed(guess)])
+        XCTAssertEqual(clock.sleeps, 40, "4s of 100ms polls, then the guess stands")
+        XCTAssertFalse(placer.placements.contains { $0.window.id == docs.id })
+    }
+
+    /// An app whose window list could not be read on any poll — it never answered within the AX
+    /// timeout, or Accessibility refused — has not vended nothing; nobody could look. "No window"
+    /// sends the user waiting for an app that will never be readable, so it gets its own failure.
+    func testWindowsThatCannotBeReadOnAnyPollFailAsUnreadableNotAsNoWindow() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [
+            safariID: URL(fileURLWithPath: safariPath),
+            previewID: URL(fileURLWithPath: previewPath),
+        ]
+        let windows = FakeWindows(windowsByBundle: [previewID: [previewWindow]])
+        windows.failingBundles = [safariID]
+        let clock = ScriptedClock()
+        let service = makeService(launcher: launcher, windows: windows, clock: clock)
+
+        let result = await service.launch(makeDocument(moveExistingWindows: false)) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.windowsUnreadable), .placed(.clean)])
     }
 
     func testOverlappingLaunchesRunSequentially() async {
@@ -944,25 +1402,54 @@ final class LaunchServiceTests: XCTestCase {
         let gate = LaunchGate()
         let waiterRan = Flag()
 
-        await gate.acquire()
+        let ticket = await gate.acquire()
         XCTAssertTrue(gate.isHeld)
 
         let waiter = Task { @MainActor in
-            await gate.acquire()
+            let own = await gate.acquire()
             waiterRan.value = true
+            gate.release(own)
         }
         await Task.yield()
         XCTAssertFalse(waiterRan.value)
 
-        gate.release()
+        gate.release(ticket)
 
         XCTAssertFalse(waiterRan.value)
         XCTAssertTrue(gate.isHeld)
 
         await waiter.value
         XCTAssertTrue(waiterRan.value)
-        gate.release()
         XCTAssertFalse(gate.isHeld)
+    }
+
+    /// Only the holder can release. A stale ticket — a release that arrives twice, or from a run
+    /// that is no longer the holder — must not hand the gate to a waiter while the real holder is
+    /// still restoring, which would run two restores at once.
+    func testAStaleTicketCannotReleaseTheGate() async {
+        let gate = LaunchGate()
+        let waiterRan = Flag()
+
+        let first = await gate.acquire()
+        gate.release(first)
+        let second = await gate.acquire()
+        let waiter = Task { @MainActor in
+            let own = await gate.acquire()
+            waiterRan.value = true
+            gate.release(own)
+        }
+        await Task.yield()
+        XCTAssertEqual(gate.waiterCount, 1)
+
+        gate.release(first)
+        await Task.yield()
+
+        XCTAssertFalse(waiterRan.value, "a stale ticket must not wake the waiter")
+        XCTAssertTrue(gate.isHeld)
+
+        gate.release(second)
+        await waiter.value
+        XCTAssertTrue(waiterRan.value)
     }
 
     func testSingleInstanceAppReusesWhenMoveExistingOff() async {
@@ -1016,8 +1503,8 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertEqual(
             result,
             [
-                SlotProgress(index: 0, name: "System Settings", status: .placed),
-                SlotProgress(index: 1, name: "System Settings", status: .placed),
+                SlotProgress(index: 0, name: "System Settings", status: .placed(.clean)),
+                SlotProgress(index: 1, name: "System Settings", status: .placed(.clean)),
             ]
         )
         XCTAssertEqual(launcher.opens.count, 1)
@@ -1042,7 +1529,7 @@ final class LaunchServiceTests: XCTestCase {
         }
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: false,
@@ -1051,7 +1538,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [frame])
         XCTAssertEqual(window.minimizedAtFrameWrite, [false])
         XCTAssertEqual(clock.sleeps, 3)
@@ -1061,7 +1548,7 @@ final class LaunchServiceTests: XCTestCase {
         let window = FakeAXWindow(isMinimized: true)
         let clock = ScriptedClock()
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
@@ -1070,7 +1557,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertFalse(placed)
+        XCTAssertEqual(outcome, .refused)
         XCTAssertTrue(window.frameWrites.isEmpty)
         // Bounded: 2s of 50ms polls. One wedged app cannot stall the rest of the restore.
         XCTAssertEqual(clock.sleeps, 40)
@@ -1090,7 +1577,7 @@ final class LaunchServiceTests: XCTestCase {
         }
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: false,
@@ -1100,7 +1587,7 @@ final class LaunchServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(window.unminimizeWrites, 1, "an unreadable state must be written to, not assumed")
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [frame])
         XCTAssertEqual(clock.sleeps, 3, "the frame waits for the state to become readable and false")
     }
@@ -1118,7 +1605,7 @@ final class LaunchServiceTests: XCTestCase {
         let clock = ScriptedClock()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: false,
@@ -1128,7 +1615,7 @@ final class LaunchServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(window.unminimizeWrites, 1, "an unreadable state must still be written to")
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [frame])
         // Bounded: it waits the full 2s for the state to become readable before giving up on the
         // question and writing anyway. One unreadable window cannot stall the rest of the restore.
@@ -1147,7 +1634,7 @@ final class LaunchServiceTests: XCTestCase {
         // The app pages in on the first poll and says it never left the Dock.
         clock.onSleep = { _ in window.minimizedState = true }
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
@@ -1157,7 +1644,7 @@ final class LaunchServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(window.unminimizeWrites, 1, "the blind write must still be sent")
-        XCTAssertFalse(placed, "a window that says it is still minimized must not be reported placed")
+        XCTAssertEqual(outcome, .refused, "a window that says it is still minimized must not be reported placed")
         XCTAssertEqual(window.frameWrites, [], "nothing may be written to a window still in the Dock")
     }
 
@@ -1172,7 +1659,7 @@ final class LaunchServiceTests: XCTestCase {
         let clock = ScriptedClock()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: false,
@@ -1181,7 +1668,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [frame])
         XCTAssertEqual(clock.sleeps, 0, "a refused write left nothing in flight to wait for")
     }
@@ -1194,7 +1681,7 @@ final class LaunchServiceTests: XCTestCase {
         window.unminimizeResult = .cannotComplete
         let clock = ScriptedClock()
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
@@ -1203,7 +1690,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertFalse(placed)
+        XCTAssertEqual(outcome, .refused)
         XCTAssertTrue(window.frameWrites.isEmpty)
         XCTAssertEqual(clock.sleeps, 0, "a refused write left nothing in flight to wait for")
     }
@@ -1215,7 +1702,7 @@ final class LaunchServiceTests: XCTestCase {
         let window = FakeAXWindow(isMinimized: true)
         let clock = ScriptedClock()
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: true,
@@ -1224,7 +1711,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.unminimizeWrites, 0)
         XCTAssertTrue(window.frameWrites.isEmpty)
         XCTAssertEqual(clock.sleeps, 0)
@@ -1238,11 +1725,13 @@ final class LaunchServiceTests: XCTestCase {
         window.minimizedState = nil
         let clock = ScriptedClock()
         clock.onSleep = { poll in
+            // Readable, and up, at poll 2 — then back into the Dock once the placement asks.
             if poll == 2 { window.minimizedState = false }
+            if poll == 4 { window.minimizedState = true }
         }
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: true,
@@ -1251,9 +1740,10 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [frame])
-        XCTAssertEqual(window.minimizedState, true, "the saved minimize is re-applied after the frame")
+        XCTAssertEqual(window.minimizeWrites, 1, "the saved minimize is re-applied after the frame")
+        XCTAssertEqual(window.minimizedState, true)
     }
 
     /// The skip is still a skip where it is safe to be one: a window confirmed to be up takes no
@@ -1263,7 +1753,7 @@ final class LaunchServiceTests: XCTestCase {
         let clock = ScriptedClock()
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: false,
@@ -1272,10 +1762,80 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.unminimizeWrites, 0)
         XCTAssertEqual(clock.sleeps, 0)
         XCTAssertEqual(window.frameWrites, [frame])
+    }
+
+    /// The re-minimize at the end of a placement was written and never read back, so a window that
+    /// cannot be miniaturized — a panel, a window without the button — reported the slot placed
+    /// while sitting on screen. Every other state change here is polled until it flips; this one
+    /// is too, and a state that never flips is `stateNotRestored`: the frame *was* applied.
+    func testASavedMinimizeThatNeverTakesIsReportedRatherThanAssumed() async {
+        let window = FakeAXWindow(isMinimized: false)
+        let clock = ScriptedClock()
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: true,
+            zoomed: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .stateNotRestored)
+        XCTAssertEqual(window.frameWrites, [frame], "the frame is still applied")
+        XCTAssertEqual(window.minimizeWrites, 1)
+        XCTAssertEqual(clock.sleeps, 40, "bounded: 2s of 50ms polls, like every other state wait")
+    }
+
+    /// The ordinary case: the write is accepted and the window goes into the Dock a moment later,
+    /// which is what the wait is for — an AX write is asynchronous, so `.success` is not the state.
+    func testASavedMinimizeThatTakesAfterAMomentIsAPlacement() async {
+        let window = FakeAXWindow(isMinimized: false)
+        let clock = ScriptedClock()
+        clock.onSleep = { poll in
+            if poll == 2 { window.minimizedState = true }
+        }
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: true,
+            zoomed: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.frameWrites, [frame])
+        XCTAssertEqual(window.minimizedState, true)
+        XCTAssertEqual(clock.sleeps, 2)
+    }
+
+    /// A window whose state could never be read is placed on the strength of the frame write alone
+    /// — so when *that* is refused, there is nothing left that could have worked, and the slot has
+    /// to be reported rather than assumed placed.
+    func testAWindowWhoseFrameWriteIsRefusedIsNotReportedAsPlaced() async {
+        let window = FakeAXWindow()
+        window.minimizedState = nil
+        window.frameResult = .cannotComplete
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
+            minimized: false,
+            zoomed: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .refused)
     }
 
     /// `isZoomed` is inferred from the frame, so a non-resizable window parked at the visible frame
@@ -1286,7 +1846,7 @@ final class LaunchServiceTests: XCTestCase {
         window.unzoomResult = .attributeUnsupported
         let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: frame,
             minimized: false,
@@ -1295,7 +1855,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: ScriptedClock()
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [frame])
     }
 
@@ -1304,7 +1864,7 @@ final class LaunchServiceTests: XCTestCase {
         let window = FakeAXWindow()
         window.zoomResult = .attributeUnsupported
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
@@ -1313,7 +1873,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: ScriptedClock()
         )
 
-        XCTAssertFalse(placed)
+        XCTAssertEqual(outcome, .stateNotRestored, "the window is on its frame; only the saved zoom is missing")
     }
 
     /// The zoom press is a *toggle*: `-[NSWindow zoom:]` picks its own direction from the window's
@@ -1326,7 +1886,7 @@ final class LaunchServiceTests: XCTestCase {
         let window = FakeAXWindow()
         let clock = ScriptedClock()
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: window.zoomTarget,
             minimized: false,
@@ -1335,7 +1895,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frame, window.zoomTarget, "the window must end on the frame that was saved")
         XCTAssertEqual(window.zoomPresses, 0, "the state already answered the request")
         XCTAssertEqual(clock.sleeps, 0)
@@ -1348,7 +1908,7 @@ final class LaunchServiceTests: XCTestCase {
         let saved = CGRect(x: 40, y: 60, width: 500, height: 400)
         let clock = ScriptedClock()
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: saved,
             minimized: false,
@@ -1357,7 +1917,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertTrue(placed)
+        XCTAssertEqual(outcome, .placed)
         XCTAssertEqual(window.frameWrites, [saved])
         XCTAssertEqual(window.zoomPresses, 1)
         XCTAssertTrue(window.isZoomed)
@@ -1374,7 +1934,7 @@ final class LaunchServiceTests: XCTestCase {
         window.standardFrame = standard
         let clock = ScriptedClock()
 
-        let placed = await WindowPlacement.apply(
+        let outcome = await WindowPlacement.apply(
             to: window,
             cocoaFrame: standard,
             minimized: false,
@@ -1383,7 +1943,7 @@ final class LaunchServiceTests: XCTestCase {
             clock: clock
         )
 
-        XCTAssertFalse(placed, "an unverifiable zoom is reported, not assumed")
+        XCTAssertEqual(outcome, .stateNotRestored, "an unverifiable zoom is reported, not assumed")
         XCTAssertEqual(window.frame, standard, "the correcting press put it back on its saved frame")
         XCTAssertEqual(window.zoomPresses, 2, "bounded: it does not press forever")
         // 2 attempts x 500ms of 50ms polls. Deliberately far short of the deminiaturize bound: a
@@ -1398,13 +1958,13 @@ final class LaunchServiceTests: XCTestCase {
         var snapshots: [[SlotProgress]] = []
 
         let result = await service.launch(
-            WorkspaceDocument(
+            try! WorkspaceDocument(
                 version: WorkspaceDocument.currentVersion,
                 name: "Empty",
                 moveExistingWindows: false,
                 displays: [savedDisplay(display)],
                 windows: []
-            )
+            ).validated()
         ) {
             snapshots.append($0)
         }
@@ -1430,13 +1990,28 @@ final class LaunchServiceTests: XCTestCase {
         MatchableWindow(id: "notes-1", bundleIdentifier: notesID, title: "Inbox")
     }
 
+    /// Yields until the condition holds, and *fails* rather than spinning forever if it never
+    /// does — an unbounded `while !condition { await Task.yield() }` turns a broken assumption
+    /// into a hung suite with no output.
+    private func yieldUntil(
+        _ description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @MainActor () -> Bool
+    ) async {
+        for _ in 0..<10_000 where !condition() {
+            await Task.yield()
+        }
+        XCTAssertTrue(condition(), "timed out waiting for \(description)", file: file, line: line)
+    }
+
     private func makeService(
         launcher: FakeLauncher,
         apps: FakeApps = FakeApps(),
         windows: FakeWindows,
         placer: FakePlacer = FakePlacer(),
         displays: [LiveDisplay]? = nil,
-        clock: any Clock = FakeClock(),
+        clock: any RestoreClock = FakeClock(),
         launchTimeout: Duration = .seconds(10),
         windowTimeout: Duration = .seconds(8),
         prohibitsMultipleInstances: @escaping (String, String) -> Bool = { _, _ in false }
@@ -1454,12 +2029,14 @@ final class LaunchServiceTests: XCTestCase {
         )
     }
 
+    /// Every document a test restores is validated the way the app validates it — `LaunchService`
+    /// only accepts the proof — so the fixtures here are exactly what a real restore would take.
     private func makeDocument(
         moveExistingWindows: Bool,
         displays: [SavedDisplay]? = nil,
         windows: [SavedWindow]? = nil
-    ) -> WorkspaceDocument {
-        WorkspaceDocument(
+    ) -> ValidatedWorkspace {
+        try! WorkspaceDocument(
             version: WorkspaceDocument.currentVersion,
             name: "Coding",
             moveExistingWindows: moveExistingWindows,
@@ -1486,7 +2063,7 @@ final class LaunchServiceTests: XCTestCase {
                     height: 300
                 ),
             ]
-        )
+        ).validated()
     }
 
     private func makeTempAppBundle(prohibited: Bool) throws -> URL {
@@ -1575,13 +2152,28 @@ private final class Flag {
 private final class FakeLauncher: ApplicationLaunching {
     var urls: [String: URL] = [:]
     var existingPaths: Set<String> = []
+    /// Hang, but honour cancellation — the way a cooperative async call would.
     var hangURLs: Set<URL> = []
+    /// Never come back at all, cancelled or not — the way `NSWorkspace.openApplication` behaves.
+    var neverReturnURLs: Set<URL> = []
     var opens: [(url: URL, configuration: LaunchConfiguration)] = []
     var openError: (any Error)?
     var openGate: OpenGate?
+    /// Runs when an open is accepted — where a test brings the launched instance into being.
+    var onOpen: @MainActor (URL) -> Void = { _ in }
     var yieldBeforeOpen = false
     var inFlightOpens = 0
     var maxInFlightOpens = 0
+    private var parked: [CheckedContinuation<Void, Never>] = []
+
+    /// Lets go of every open parked by `neverReturnURLs`.
+    func releaseParked() {
+        let waiting = parked
+        parked = []
+        for continuation in waiting {
+            continuation.resume()
+        }
+    }
 
     func urlForApplication(bundleIdentifier: String) -> URL? {
         urls[bundleIdentifier]
@@ -1604,25 +2196,47 @@ private final class FakeLauncher: ApplicationLaunching {
         if hangURLs.contains(url) {
             try await Task.sleep(for: .seconds(60))
         }
+        if neverReturnURLs.contains(url) {
+            // Parked, and released in the test's teardown: a continuation nobody resumes leaks the
+            // task and everything it captured for the life of the process.
+            await withCheckedContinuation { parked.append($0) }
+        }
         if let openError { throw openError }
         opens.append((url, configuration))
+        onOpen(url)
     }
 }
 
 @MainActor
 private final class FakeApps: RunningApplicationQuerying {
     var running: Set<String> = []
+    /// The processes behind each running bundle id; empty for a bundle that is listed as running
+    /// but whose pids a test does not care about.
+    var pids: [String: Set<pid_t>] = [:]
     var unhidden: [String] = []
     var activated: [String] = []
+    var activatedPIDs: [pid_t?] = []
 
     func runningBundleIDs() -> Set<String> { running }
+
+    func runningPIDs(bundleIdentifier: String) -> Set<pid_t> {
+        pids[bundleIdentifier] ?? []
+    }
 
     func unhide(bundleIdentifier: String) {
         unhidden.append(bundleIdentifier)
     }
 
-    func activate(bundleIdentifier: String) {
+    func activate(bundleIdentifier: String, pid: pid_t?) {
         activated.append(bundleIdentifier)
+        activatedPIDs.append(pid)
+    }
+}
+
+extension MatchableWindow {
+    /// Most tests do not care which process a window belongs to; pid 1 stands in.
+    init(id: String, bundleIdentifier: String, title: String) {
+        self.init(id: id, pid: 1, bundleIdentifier: bundleIdentifier, title: title)
     }
 }
 
@@ -1631,6 +2245,11 @@ private final class FakeWindows: WindowCatalog {
     var windowsByBundle: [String: [MatchableWindow]]
     var requireOpenBeforeWindows = false
     weak var launcher: FakeLauncher?
+    /// Runs on every read, so a test can charge the clock for it.
+    var onRead: @MainActor () -> Void = {}
+    /// Bundles whose window list cannot be read at all — the app that never answers within the
+    /// AX timeout, or a lost trust grant.
+    var failingBundles: Set<String> = []
 
     init(windowsByBundle: [String: [MatchableWindow]] = [:]) {
         self.windowsByBundle = windowsByBundle
@@ -1648,7 +2267,11 @@ private final class FakeWindows: WindowCatalog {
         }
     }
 
-    func standardWindows(bundleIdentifier: String) -> [MatchableWindow] {
+    func standardWindows(bundleIdentifier: String) throws -> [MatchableWindow] {
+        onRead()
+        if failingBundles.contains(bundleIdentifier) {
+            throw AXWindowListError(code: .cannotComplete)
+        }
         guard windowsAreAvailable(for: bundleIdentifier) else { return [] }
         return windowsByBundle[bundleIdentifier] ?? []
     }
@@ -1671,16 +2294,22 @@ private final class FakePlacer: WindowPlacing {
 
     var placements: [Placement] = []
     var refuseIDs: Set<String>
+    /// Per window id; anything not listed (and not refused) is placed cleanly.
+    var outcomes: [String: PlacementOutcome] = [:]
+    /// Runs before each placement is recorded — where a test lands a Cancel click mid-placement.
+    var onPlace: @MainActor (MatchableWindow) -> Void = { _ in }
 
     init(refuseIDs: Set<String> = []) {
         self.refuseIDs = refuseIDs
     }
 
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> Bool {
+    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome {
+        onPlace(window)
         placements.append(
             Placement(window: window, cocoaFrame: cocoaFrame, minimized: minimized, zoomed: zoomed)
         )
-        return !refuseIDs.contains(window.id)
+        if refuseIDs.contains(window.id) { return .refused }
+        return outcomes[window.id] ?? .placed
     }
 }
 
@@ -1746,14 +2375,20 @@ private final class FakeAXWindow: PlaceableWindow {
         }
     }
 
+    /// Accepts the write and does *not* flip the state: an AX write is asynchronous, so a caller
+    /// that needs the outcome has to read it back. Tests drive the flip through the clock, and a
+    /// state that never flips is what a window that cannot be miniaturized does — while still
+    /// answering `.success`.
     func setMinimized(_ minimized: Bool) -> AXError {
         guard minimized else {
             unminimizeWrites += 1
             return unminimizeResult
         }
-        minimizedState = true
+        minimizeWrites += 1
         return .success
     }
+
+    private(set) var minimizeWrites = 0
 
     /// A pure toggle: the argument does not aim it. `-[NSWindow zoom:]` picks its own direction
     /// from the window's frame, so a press on a window already at the zoom target sends it back to
@@ -1767,23 +2402,56 @@ private final class FakeAXWindow: PlaceableWindow {
         return .success
     }
 
+    /// What the frame write answers. The whole `stateUnknown` design rests on the frame write
+    /// being the one step that can still report on a window nothing else could read, so a refusal
+    /// there has to be exercised.
+    var frameResult: AXError = .success
+
     func setCocoaFrame(_ frame: CGRect) -> AXError {
         frameWrites.append(frame)
         minimizedAtFrameWrite.append(isMinimized)
+        guard frameResult == .success else { return frameResult }
         self.frame = frame
         return .success
     }
 }
 
 /// Stands in for the time a bounded wait spends polling: `onSleep` is where the test moves the
-/// world on, so a wait that never re-reads its state can be told apart from one that does.
+/// world on, so a wait that never re-reads its state can be told apart from one that does. Time
+/// is virtual: each sleep advances `now` by what was asked for, and `advance(by:)` stands in for
+/// time that passes *between* sleeps — a slow Accessibility read, above all.
+/// Counts sleeps against a clock that never moves, so a poll-count bound can be tested without a
+/// wall-clock deadline expiring underneath it.
 @MainActor
-private final class ScriptedClock: Clock {
+private final class CountingClock: RestoreClock {
     private(set) var sleeps = 0
-    var onSleep: @MainActor (Int) -> Void = { _ in }
+    let now = ContinuousClock.now
 
     func sleep(_ duration: Duration) async {
         _ = duration
+        sleeps += 1
+    }
+}
+
+@MainActor
+private final class ScriptedClock: RestoreClock {
+    private(set) var sleeps = 0
+    private(set) var now: ContinuousClock.Instant = .now
+    private let start: ContinuousClock.Instant
+    var onSleep: @MainActor (Int) -> Void = { _ in }
+
+    init() {
+        start = now
+    }
+
+    var elapsed: Duration { now - start }
+
+    func advance(by duration: Duration) {
+        now += duration
+    }
+
+    func sleep(_ duration: Duration) async {
+        now += duration
         sleeps += 1
         onSleep(sleeps)
     }
@@ -1816,8 +2484,13 @@ private struct FakeLaunchDisplays: DisplayCatalog {
     func displays() -> [LiveDisplay] { live }
 }
 
+/// Sleeps instantly and never advances — `now` is frozen at construction — so a wait driven by
+/// this clock is bounded by its poll *count* alone. That is what lets a test tell the two bounds
+/// apart: under `ScriptedClock` both expire together and either one passing looks the same.
 @MainActor
-private struct FakeClock: Clock {
+private struct FakeClock: RestoreClock {
+    let now = ContinuousClock.now
+
     func sleep(_ duration: Duration) async {
         _ = duration
     }

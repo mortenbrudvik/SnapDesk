@@ -34,7 +34,6 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SnapDesk/App/SnapDesk.entitlements
         ENABLE_HARDENED_RUNTIME: false
         CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
         DEVELOPMENT_TEAM: 3GS65HFAFH
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
@@ -54,6 +53,11 @@ targets:
           # append `CODE_SIGN_IDENTITY=-` to the xcodebuild invocation to build ad-hoc again.
           CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"
         Release:
+          # A shipped build must not carry `get-task-allow`, which is what lets any process attach
+          # a debugger to it. Xcode injects it from the base entitlements for a development
+          # signature, so it is suppressed here and *only* here: leaving this off in Debug is what
+          # stopped the debugger attaching to Run and Test.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
           ENABLE_HARDENED_RUNTIME: true
           CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"
           OTHER_CODE_SIGN_FLAGS: --timestamp

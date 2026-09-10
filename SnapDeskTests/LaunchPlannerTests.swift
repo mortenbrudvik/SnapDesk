@@ -65,28 +65,12 @@ final class LaunchPlannerTests: XCTestCase {
         XCTAssertEqual(plans.count, 3)
         XCTAssertEqual(
             plans[0],
-            SlotPlan(
-                index: 0,
-                action: .launch(
-                    bundleIdentifier: safariID,
-                    path: safariPath,
-                    arguments: ["--new-window"],
-                    newInstance: false
-                )
-            )
+            .launch(arguments: ["--new-window"], newInstance: false)
         )
-        XCTAssertEqual(plans[1], SlotPlan(index: 1, action: .reuse))
+        XCTAssertEqual(plans[1], .reuse)
         XCTAssertEqual(
             plans[2],
-            SlotPlan(
-                index: 2,
-                action: .launch(
-                    bundleIdentifier: previewID,
-                    path: previewPath,
-                    arguments: [],
-                    newInstance: false
-                )
-            )
+            .launch(arguments: [], newInstance: false)
         )
     }
 
@@ -95,19 +79,11 @@ final class LaunchPlannerTests: XCTestCase {
         let plans = LaunchPlanner.plan(document: doc, runningBundleIDs: [safariID])
 
         XCTAssertEqual(plans.count, 3)
-        XCTAssertEqual(plans[0], SlotPlan(index: 0, action: .reuse))
-        XCTAssertEqual(plans[1], SlotPlan(index: 1, action: .reuse))
+        XCTAssertEqual(plans[0], .reuse)
+        XCTAssertEqual(plans[1], .reuse)
         XCTAssertEqual(
             plans[2],
-            SlotPlan(
-                index: 2,
-                action: .launch(
-                    bundleIdentifier: previewID,
-                    path: previewPath,
-                    arguments: [],
-                    newInstance: false
-                )
-            )
+            .launch(arguments: [], newInstance: false)
         )
     }
 
@@ -118,39 +94,15 @@ final class LaunchPlannerTests: XCTestCase {
         XCTAssertEqual(plans.count, 3)
         XCTAssertEqual(
             plans[0],
-            SlotPlan(
-                index: 0,
-                action: .launch(
-                    bundleIdentifier: safariID,
-                    path: safariPath,
-                    arguments: ["--new-window"],
-                    newInstance: true
-                )
-            )
+            .launch(arguments: ["--new-window"], newInstance: true)
         )
         XCTAssertEqual(
             plans[1],
-            SlotPlan(
-                index: 1,
-                action: .launch(
-                    bundleIdentifier: safariID,
-                    path: safariPath,
-                    arguments: [],
-                    newInstance: true
-                )
-            )
+            .launch(arguments: [], newInstance: true)
         )
         XCTAssertEqual(
             plans[2],
-            SlotPlan(
-                index: 2,
-                action: .launch(
-                    bundleIdentifier: previewID,
-                    path: previewPath,
-                    arguments: [],
-                    newInstance: true
-                )
-            )
+            .launch(arguments: [], newInstance: true)
         )
     }
 
@@ -177,28 +129,12 @@ final class LaunchPlannerTests: XCTestCase {
 
         XCTAssertEqual(
             plans[0],
-            SlotPlan(
-                index: 0,
-                action: .launch(
-                    bundleIdentifier: settingsID,
-                    path: settingsPath,
-                    arguments: [],
-                    newInstance: false
-                )
-            )
+            .launch(arguments: [], newInstance: false)
         )
-        XCTAssertEqual(plans[1], SlotPlan(index: 1, action: .reuse))
+        XCTAssertEqual(plans[1], .reuse)
         XCTAssertEqual(
             plans[2],
-            SlotPlan(
-                index: 2,
-                action: .launch(
-                    bundleIdentifier: safariID,
-                    path: safariPath,
-                    arguments: [],
-                    newInstance: true
-                )
-            )
+            .launch(arguments: [], newInstance: true)
         )
     }
 
@@ -222,8 +158,8 @@ final class LaunchPlannerTests: XCTestCase {
             prohibitsMultipleInstances: { bundleID, _ in bundleID == settingsID }
         )
 
-        XCTAssertEqual(plans[0], SlotPlan(index: 0, action: .reuse))
-        XCTAssertEqual(plans[1], SlotPlan(index: 1, action: .reuse))
+        XCTAssertEqual(plans[0], .reuse)
+        XCTAssertEqual(plans[1], .reuse)
     }
 
     func testPlaceOrderDescending() {

@@ -32,11 +32,12 @@ final class AXWindowTests: XCTestCase {
     /// A titled window is 28pt taller than its content rect, so every expectation here is built
     /// from `NSWindow.frame` rather than from the rect the window was asked for.
     private func makeWindow(
-        contentRect: NSRect = NSRect(x: 200, y: 200, width: 400, height: 300)
+        contentRect: NSRect = NSRect(x: 200, y: 200, width: 400, height: 300),
+        styleMask: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
     ) -> NSWindow {
         let window = NSWindow(
             contentRect: contentRect,
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
@@ -96,13 +97,16 @@ final class AXWindowTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> Error {
+        // What TCC says is part of the message: "granted but not applying" and "never granted"
+        // are different repairs (see `AccessibilityAuth.Remedy`), and the skip is the only place
+        // a reader learns which one they are looking at.
         let message = """
-            \(reason). Grant Accessibility to the test host — the built SnapDesk.app that hosts \
-            these tests, not Xcode and not the terminal — under System Settings › Privacy & \
-            Security › Accessibility. The grant is keyed to the code signature, and an ad-hoc \
-            signature has no identity beyond its cdhash — which changes on every rebuild — so an \
-            ad-hoc-signed build drops the grant every time it is built: remove the stale entry \
-            and add the freshly built app again.
+            \(reason); TCC reports trusted=\(AccessibilityAuth.isTrusted). Grant Accessibility to \
+            the test host — the built SnapDesk.app that hosts these tests, not Xcode and not the \
+            terminal — under System Settings › Privacy & Security › Accessibility. The grant is \
+            keyed to the code signature, and an ad-hoc signature has no identity beyond its \
+            cdhash — which changes on every rebuild — so an ad-hoc-signed build drops the grant \
+            every time it is built: remove the stale entry and add the freshly built app again.
             """
         guard Self.accessibilityIsRequired else { return XCTSkip(message) }
         XCTFail(message, file: file, line: line)
@@ -136,13 +140,28 @@ final class AXWindowTests: XCTestCase {
     /// Goes through `AXWindow.windows(pid:)` rather than repeating the lookup here, because that
     /// function — and its role-filtering `compactMap` — is what every capture and every
     /// placement runs through, and a test-local copy would leave it uncovered.
+    ///
+    /// The raw read comes first and is the only thing allowed to skip: once it has vended the
+    /// window, the Accessibility layer is demonstrably reachable, and a wrapper that then answers
+    /// nothing is broken — a failure, never a skip. Before this, a regression in `windows(pid:)`
+    /// skipped every test here and the run still printed TEST SUCCEEDED.
     private func axWindow(for window: NSWindow) throws -> AXWindow {
-        let windows = AXWindow.windows(pid: getpid())
+        _ = try element(for: window)
+        let windows: [AXWindow]
+        do {
+            windows = try AXWindow.windows(pid: getpid())
+        } catch {
+            XCTFail("the raw read vends our windows but AXWindow.windows(pid:) threw \(error)")
+            throw error
+        }
         guard let match = windows.first(where: { $0.title == window.title }) else {
-            throw accessibilityUnavailable("our own windows are not vended over Accessibility (\(windows.count) found)")
+            XCTFail("the raw read vends this window but AXWindow.windows(pid:) does not (\(windows.count) found)")
+            throw WrapperMissedWindow()
         }
         return match
     }
+
+    private struct WrapperMissedWindow: Error {}
 
     /// AX writes reach the window server asynchronously — minimizing and zooming both animate —
     /// so state written on one line is not readable on the next.
@@ -195,12 +214,51 @@ final class AXWindowTests: XCTestCase {
 
     func testWindowsForOurProcessVendsOurWindow() throws {
         let window = makeWindow()
-        let windows = AXWindow.windows(pid: getpid())
-        if windows.isEmpty {
-            throw accessibilityUnavailable("our own windows are not vended over Accessibility")
-        }
+        _ = try element(for: window)
+
+        let windows = try AXWindow.windows(pid: getpid())
 
         XCTAssertTrue(windows.contains { $0.title == window.title })
+    }
+
+    /// A pid that no process has answers a failure, and it has to arrive as one: the empty list
+    /// it used to become is indistinguishable from an app with no windows, which is how a capture
+    /// came to drop an app and still report a healthy count.
+    func testAListThatCannotBeReadThrowsRatherThanAnsweringAnEmptyList() {
+        // Reserve a pid that is not in use by asking the kernel for one and letting it exit.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        XCTAssertNoThrow(try process.run())
+        process.waitUntilExit()
+
+        XCTAssertThrowsError(try AXWindow.windows(pid: process.processIdentifier)) { error in
+            XCTAssertNotEqual((error as? AXWindowListError)?.code, .success)
+        }
+    }
+
+    // MARK: The restore catalog
+
+    /// `AXWindowCatalog` is the restore side of `CaptureFilter`: a window capture would have
+    /// refused must not be handed to a slot either. A `.titled`-only window vends none of the
+    /// three title-bar buttons while still calling itself `AXStandardWindow`, which is exactly
+    /// the shape an Open/Save panel has — and the shape the catalog used to hand out, because it
+    /// built its candidate without ever reading the buttons.
+    func testTheRestoreCatalogListsARealWindowButNotAChromelessOne() throws {
+        let real = makeWindow()
+        let chromeless = makeWindow(
+            contentRect: NSRect(x: 320, y: 320, width: 400, height: 300),
+            styleMask: [.titled]
+        )
+        _ = try axWindow(for: real)
+        let bundleID = try XCTUnwrap(Bundle.main.bundleIdentifier)
+
+        let listed = try AXWindowCatalog().standardWindows(bundleIdentifier: bundleID)
+
+        XCTAssertTrue(listed.contains { $0.title == real.title }, "a real window must be listed")
+        XCTAssertFalse(
+            listed.contains { $0.title == chromeless.title },
+            "a chromeless standard window is an Open/Save panel as far as the filter is concerned"
+        )
     }
 
     // MARK: Reading
@@ -335,48 +393,17 @@ final class AXWindowTests: XCTestCase {
         XCTAssertEqual(ax.minimizedState, false)
     }
 
-    func testEnsureNotMinimizedRaisesAMinimizedWindowAndLeavesAnOpenOneAlone() throws {
-        let policy = NSApp.activationPolicy()
-        NSApp.setActivationPolicy(.regular)
-        addTeardownBlock { @MainActor in NSApp.setActivationPolicy(policy) }
-
-        let window = makeWindow()
-        let ax = try axWindow(for: window)
-
-        XCTAssertEqual(ax.ensureNotMinimized(), .success)
-        XCTAssertFalse(window.isMiniaturized, "a window that is already up must not be written to at all")
-
-        XCTAssertEqual(ax.setMinimized(true), .success)
-        waitUntil("the window to be miniaturized") { window.isMiniaturized }
-
-        XCTAssertEqual(ax.ensureNotMinimized(), .success)
-        waitUntil("the window to come back") { !window.isMiniaturized }
-    }
-
     /// Un-minimizing is a precondition for the frame write that follows it, so it has to happen
     /// when the state is *unknown* and not only when it is a confirmed `true`. The read fails for
     /// exactly the window this matters for: one minimized long enough that its app is swapped out
     /// and misses the messaging timeout on the first message. Branching on `isMinimized` reads
     /// that as "not minimized", skips the un-minimize, and writes a frame into the Dock.
-    func testEnsureNotMinimizedActsOnAStateItCouldNotRead() throws {
-        let window = makeWindow()
-        let ax = try axWindow(for: window)
-        window.close()
-
-        XCTAssertNil(ax.minimizedState)
-        XCTAssertFalse(ax.isMinimized, "the lossy accessor answers false, which is what skipped the write")
-        XCTAssertNotEqual(
-            ax.ensureNotMinimized(),
-            .success,
-            "an unknown state must be written to, and a refused write reported rather than skipped"
-        )
-    }
-
     /// The two halves a placement has to tell apart. A refusal on a window *confirmed* minimized
     /// is fatal — every write after it lands in the Dock and is swallowed while AX reports success
     /// — and a refusal on a state that could not be read is not, because the window may never have
-    /// been minimized at all. `ensureNotMinimized()` returns the same `AXError` for both, which is
-    /// how a placement that needed no un-minimize at all came to be reported "could not position".
+    /// been minimized at all. A lossy wrapper that returned the same `AXError` for both is how a
+    /// placement that needed no un-minimize at all came to be reported "could not position"; that
+    /// wrapper is gone, and this is the API that replaced it.
     func testUnminimizeSeparatesAConfirmedStateFromAnUnreadableOne() throws {
         let policy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.regular)

@@ -7,9 +7,20 @@ protocol DelayRunning: AnyObject {
 
 @MainActor
 final class MainActorDelay: DelayRunning {
+    /// The most recently scheduled delay, so a caller can cancel or await it. Exposed for tests;
+    /// the HUD invalidates a pending auto-dismiss by generation instead.
+    private(set) var pending: Task<Void, Never>?
+
     func run(after duration: Duration, _ work: @escaping @MainActor () -> Void) {
-        Task { @MainActor in
-            try? await Task.sleep(for: duration)
+        pending = Task { @MainActor in
+            do {
+                try await Task.sleep(for: duration)
+            } catch {
+                // Cancelled. `try?` here ran the work anyway — and instantly, because a cancelled
+                // sleep returns at once — which for the auto-dismiss meant hiding a HUD that by
+                // then belonged to a different restore.
+                return
+            }
             work()
         }
     }
@@ -67,13 +78,7 @@ final class LaunchHUDController {
             return !previousSlots.contains(where: { $0.index == slot.index && $0.status.failure != nil })
         }
         previousSlots = slots
-        rows = slots.map {
-            LaunchHUD.Row(
-                name: $0.name,
-                status: Self.statusText(for: $0.status),
-                isFailure: $0.status.failure != nil
-            )
-        }
+        rows = slots.map { LaunchHUD.Row(name: $0.name, status: $0.status) }
         hud.render(rows: rows)
         if !userDismissed {
             setVisible(true)
@@ -91,12 +96,21 @@ final class LaunchHUDController {
         // A button that stays live there offers an action that can no longer do anything.
         setCancellable(!finished)
 
-        let anyFailed = slots.contains { $0.status.failure != nil }
         // A restore that lost a slot stays on screen. Auto-dismissing it after 600ms looks exactly
-        // like a clean run, so the one case the HUD exists for is the one the user never sees. A
-        // cancelled slot is not one of those: the user knows why it stopped and should not have to
-        // dismiss the HUD a second time to be rid of it.
-        if !userDismissed, finished, !anyFailed {
+        // like a clean run, so the one case the HUD exists for is the one the user never sees.
+        //
+        // A slot that took a window it is not named after, or landed on a display the workspace
+        // was not captured on, counts here too: it is not a *failure*, so it does not beep, but it
+        // is the whole explanation for a layout that came back looking wrong — and the correction
+        // pass runs for four seconds after this, which a dismissed HUD would never show. A
+        // cancelled slot is neither: the user knows why it stopped and should not have to dismiss
+        // the HUD a second time to be rid of it.
+        let needsAttention = slots.contains { slot in
+            if slot.status.failure != nil { return true }
+            if case .placed(let note) = slot.status { return note != .clean }
+            return false
+        }
+        if !userDismissed, finished, !needsAttention {
             scheduleAutoDismiss()
         } else {
             dismissGeneration += 1
@@ -133,7 +147,7 @@ final class LaunchHUDController {
         }
     }
 
-    private static func statusText(for status: SlotStatus) -> String {
+    nonisolated static func statusText(for status: SlotStatus) -> String {
         switch status {
         case .pending:
             return "Pending"
@@ -141,8 +155,15 @@ final class LaunchHUDController {
             return "Launching"
         case .matched:
             return "Ready"
-        case .placed:
-            return "Placed"
+        case .placed(let note):
+            var text = "Placed"
+            if let display = note.substituteDisplay {
+                text += " on \(display)"
+            }
+            if note.isGuess {
+                text += " (other window)"
+            }
+            return text
         case .cancelled:
             return "Cancelled"
         case .failed(let reason):

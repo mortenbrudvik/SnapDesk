@@ -210,22 +210,6 @@ struct AXWindow {
         }
     }
 
-    /// The lossy view of `unminimize()`, for a caller that only branches on success: `.success`
-    /// when the window was already up, and otherwise whatever the write returned — which means the
-    /// write was accepted, never that the window is back out of the Dock.
-    ///
-    /// It flattens the one distinction a placement has to keep, between a refusal on a window
-    /// confirmed minimized (fatal: every write after it lands in the Dock) and a refusal on a state
-    /// that could not be read (not fatal: the window may never have been minimized). Prefer
-    /// `unminimize()` wherever that difference decides whether a slot is reported placed.
-    @discardableResult
-    func ensureNotMinimized() -> AXError {
-        switch unminimize() {
-        case .alreadyUp: return .success
-        case .wasMinimized(let write), .stateUnknown(let write): return write
-        }
-    }
-
     /// There is no `AXZoomed` attribute. A titled window vends `AXZoomButton` (the button
     /// element) but no boolean zoom state: reading, writing or even asking whether "AXZoomed"
     /// is settable returns `kAXErrorAttributeUnsupported` (-25205), and the string appears
@@ -269,10 +253,6 @@ struct AXWindow {
     /// fixed-size utility window), which is a real outcome a caller may want to report, not a
     /// no-op.
     ///
-    /// The press has no direction of its own: it runs `-[NSWindow zoom:]`, a *toggle* AppKit aims
-    /// with its own `isZoomed` — the window's frame measured against its standard frame. So
-    /// `.success` says the button was pressed and nothing more; whether the window ended up zoomed
-    /// is only ever answered by reading the state back afterwards.
     /// Whether the window vends any of the three title-bar button elements. An Open/Save panel
     /// vends none of them while still calling itself `AXStandardWindow`, which is what lets
     /// `CaptureFilter` keep one out of a saved workspace; see `isChromelessStandardWindow` there
@@ -282,6 +262,10 @@ struct AXWindow {
             .contains { elementValue(attribute: $0) != nil }
     }
 
+    /// The press has no direction of its own: it runs `-[NSWindow zoom:]`, a *toggle* AppKit aims
+    /// with its own `isZoomed` — the window's frame measured against its standard frame. So
+    /// `.success` says the button was pressed and nothing more; whether the window ended up zoomed
+    /// is only ever answered by reading the state back afterwards.
     @discardableResult
     func pressZoomButton() -> AXError {
         guard let button = elementValue(attribute: kAXZoomButtonAttribute) else {
@@ -329,23 +313,23 @@ struct AXWindow {
 
     // MARK: Lookup
 
-    static func windows(pid: pid_t) -> [AXWindow] {
+    /// The app's windows, role-filtered. Throws rather than answering `[]` when the list itself
+    /// could not be read, because an empty list is a real answer — "this app has no windows" —
+    /// and the failures are not: `.cannotComplete` is an app that did not answer within
+    /// `messagingTimeout` (beachballing, swapping, mid-launch, or already gone),
+    /// `.invalidUIElement` a stale element, `.apiDisabled` a lost trust grant. Collapsing them
+    /// into `[]` is how a capture came to drop a busy app and still report a healthy window count.
+    /// Callers decide what a failure means for them and log it with the app's name; this layer
+    /// only knows a pid.
+    static func windows(pid: pid_t) throws(AXWindowListError) -> [AXWindow] {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(
             AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value
         )
-        guard error == .success else {
-            // An empty list here is not "this app has no windows": `.cannotComplete` is an app
-            // that did not answer within `messagingTimeout` (beachballing, swapping, mid-launch),
-            // `.invalidUIElement` a process that has exited, `.apiDisabled` a lost trust grant.
-            // All of them return [], so a capture would drop the app and still report a healthy
-            // window count — the log line is the only way to tell afterwards what went missing.
-            Log.ax.error("could not list the windows of pid \(pid) (AXError \(error.rawValue))")
-            return []
-        }
+        guard error == .success else { throw AXWindowListError(code: error) }
         guard let elements = value as? [AXUIElement] else {
             Log.ax.error("the window list of pid \(pid) was not an array of AX elements")
-            return []
+            throw AXWindowListError(code: .failure)
         }
         return elements.compactMap(AXWindow.init(windowElement:))
     }
@@ -388,6 +372,11 @@ struct AXWindow {
     private func setBool(_ attribute: String, _ value: Bool) -> AXError {
         AXUIElementSetAttributeValue(element, attribute as CFString, value ? kCFBooleanTrue : kCFBooleanFalse)
     }
+}
+
+/// The window list of a process could not be read at all; `code` is what Accessibility answered.
+struct AXWindowListError: Error, Equatable {
+    let code: AXError
 }
 
 /// The single funnel for every attribute read: title, subrole, position, size, minimized state.

@@ -2,14 +2,17 @@ import AppKit
 
 @MainActor
 final class LaunchHUD: NSObject {
-    /// One line of the HUD. `isFailure` is carried alongside the text rather than re-derived from
-    /// it: what a row *means* is settled by `SlotStatus`, and reading it back out of the rendered
-    /// wording ties the colour to a string that exists to be reworded — the same mistake that once
-    /// left four of the five failures silent because the beep matched one specific message.
+    /// One line of the HUD. The row carries the `SlotStatus` itself and derives both the wording
+    /// and the colour from it: what a row *means* is settled by the status, and reading it back out
+    /// of the rendered wording ties the colour to a string that exists to be reworded — the same
+    /// mistake that once left four of the five failures silent because the beep matched one
+    /// specific message.
     struct Row {
         var name: String
-        var status: String
-        var isFailure: Bool
+        var status: SlotStatus
+
+        var text: String { LaunchHUDController.statusText(for: status) }
+        var isFailure: Bool { status.failure != nil }
     }
 
     let panel: NSPanel
@@ -116,7 +119,7 @@ final class LaunchHUD: NSObject {
         nameField.maximumNumberOfLines = 1
         nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let statusField = NSTextField(labelWithString: row.status)
+        let statusField = NSTextField(labelWithString: row.text)
         statusField.alignment = .right
         statusField.textColor = row.isFailure ? .systemRed : .secondaryLabelColor
         statusField.setContentHuggingPriority(.required, for: .horizontal)
