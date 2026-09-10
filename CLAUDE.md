@@ -70,6 +70,13 @@ Two paths meet in `WorkspaceDocument`, the `.snapdesk` file's in-memory form: ca
 
 ### Invariants worth knowing before editing
 
+The measurements behind the restore design — why discovery polls rather than
+using `AXWindowCreated`, why the settle decision is revocable, why no signal
+identifies a start-page window, and why the AX messaging timeout is 0.5s — are
+recorded in `docs/decisions/window-discovery.md`. Read it before changing the
+claim loop or the timeouts; several of those conclusions are counter-intuitive
+and were expensive to establish.
+
 - **There is no `AXZoomed` attribute.** It exists in no macOS framework: reading, writing or asking whether it is settable returns `kAXErrorAttributeUnsupported`, and the string appears nowhere in the dyld shared cache. Zoom is *inferred* from the frame against the display's visible frame (`AXWindow.isZoomed(frame:on:)`, 2pt tolerance) and changed only by pressing `kAXZoomButtonAttribute` — a toggle AppKit aims with its own frame test, so a press has no direction of its own and `.success` never means the window ended up zoomed. Read the state back (`WindowPlacement.ensureZoomed` presses at most twice and re-reads between).
 - **AX writes are asynchronous.** `setMinimized` returning `.success` is the write being accepted, not the window leaving the Dock — and a frame written to a window still in the Dock is swallowed while AX reports success for it. Every state change that something later depends on is polled until it flips (`WindowPlacement.settled`).
 - **A failed AX read must never be persisted as `false`.** `minimizedState` is nil for a read that failed and false for a window that is simply not minimized; capture uses it and skips the window when it is nil, because a wrong value goes to disk and every later restore reproduces it. `isMinimized`/`isZoomed` collapse the two and are only for a decision made now and discarded.
