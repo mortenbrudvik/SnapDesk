@@ -174,7 +174,7 @@ Snapshot of the desk as it is. No overlay. User arranges, then Capture.
 
 1. `NSWorkspace.shared.runningApplications` where `activationPolicy == .regular`.
 2. Skip SnapDesk (`com.brudvik.snapdesk`), Dock, Finder desktop/wallpaper windows, menu extras, and any app with no usable AX application element.
-3. For each remaining app, `AXWindows`. Keep elements whose role is `AXWindow` and subrole is `AXStandardWindow` (or missing subrole but looks like a normal window: has `AXTitle` and a non-empty frame). Skip `AXUnknown`, `AXFloatingWindow`, `AXSystemDialog`, sheets, and frames with width or height under 8 pt.
+3. For each remaining app, `AXWindows`. Keep every element whose role is `AXWindow` — the subrole list is an *exclusion* list, not an allow list, so dialogs and sheets are kept. Skip subroles `AXUnknown`, `AXFloatingWindow` and `AXSystemDialog`; frames with width or height under 8 pt; and an `AXStandardWindow` that vends none of the three title-bar buttons, which is the shape of an Open/Save panel (see `docs/decisions/window-discovery.md` §3).
 4. Include minimized windows (`AXMinimized`).
 5. Include hidden apps (⌘H). Restore will unhide.
 
@@ -248,16 +248,16 @@ Wait for a window that is **not** already claimed. If the app ignores new-instan
 
 - Launch timeout: **10 s** per `openApplication` call.
 - Window timeout: **8 s** after launch (or immediately if already running), polling AX on the main actor about every 0.1 s.
-- AX messaging timeout: **0.25 s**, installed at app launch (Loadstone).
+- AX messaging timeout: **0.5 s**, installed at app launch. 0.25 s was measured too tight — legitimate reads take 257–261 ms while several apps launch at once — and a timed-out read is indistinguishable from "no windows yet"; see `docs/decisions/window-discovery.md` §4.
 
 ### Placement (per slot, back → front)
 
-1. Unminimize if we will not leave it minimized (`AXMinimized = false`) so the frame write sticks. Always unminimize before writing a frame.
+1. Unminimize (`AXMinimized = false`) so the frame write sticks, and wait for the state to actually flip — an AX write is asynchronous, and a frame written to a window still in the Dock is swallowed while AX reports success. One exception: a slot saved minimized whose window is *already* minimized is left alone, frame and all. Deminiaturizing it only to put it back is a flash the user sees for no gain, and the frame write in between would be swallowed anyway — the cost is that such a window keeps its old frame until it is next un-minimized.
 2. If the window reads as zoomed, press `AXZoomButton` to un-zoom it first so the frame is not ignored.
 3. Map display and compute Cocoa frame (Coordinate restore).
 4. Write AX **size → position → size**, with `AXEnhancedUserInterface` save-disable-restore around the write (Loadstone).
 5. If `zoomed`, press `AXZoomButton` to zoom it. A window with no zoom button reports `kAXErrorAttributeUnsupported`, which is a slot failure rather than a no-op.
-6. If `minimized`, set `AXMinimized = true` **after** the frame so unminimize later lands correctly.
+6. If `minimized`, set `AXMinimized = true` **after** the frame so unminimize later lands correctly, and read it back: a window that cannot be miniaturized answers `.success` and stays on screen.
 7. After all slots, activate the running app for `windows[0]` (frontmost). If that slot failed, activate the first successful slot in list order.
 
 ### HUD

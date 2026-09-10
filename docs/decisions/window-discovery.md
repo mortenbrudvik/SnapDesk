@@ -45,8 +45,8 @@ time, so no finite N is ever correct.
 The notification is real (`kAXWindowCreatedNotification`), registers with
 `err=0` against live Safari, Notes, TextEdit and Finder, and post-arm was 100%
 reliable across every probe, surviving a 12 s main-thread beachball and a 6.5 s
-`SIGSTOP`. An earlier comment in this repo claiming AX has no such callback was
-simply false.
+`SIGSTOP`. An earlier draft claimed AX has no such callback; it was wrong, and
+no committed revision carries that claim.
 
 It is still the wrong tool for *discovery*:
 
@@ -103,8 +103,11 @@ itself passes cleanly.
 ## 4. The AX messaging timeout
 
 The documented "6 seconds" is wrong. Measured against a `SIGSTOP`ped process:
-default **1514 ms**; `installMessagingTimeout(0.5)` → 504 ms; `(0.25)` → 254 ms.
-A *dead* process returns `-25204` in ~1 ms, a *hung* one after the full timeout.
+default **1514 ms**; with `messagingTimeout` at 0.5 → 504 ms; at 0.25 → 254 ms
+(`AXWindow.installMessagingTimeout()` takes no argument — it installs that
+constant). A dead process answered in ~1 ms and a hung one after the full
+timeout; both were `-25204` (`kAXErrorCannotComplete`) in these measurements,
+so the error code alone does not tell them apart.
 
 0.25 s was too tight: legitimate reads measured 257–261 ms while several apps
 launch at once — exactly what a restore does — and 315 ms after a hang cleared.
