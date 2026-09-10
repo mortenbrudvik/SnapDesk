@@ -45,6 +45,14 @@ targets:
       configs:
         Debug:
           ENABLE_TESTABILITY: YES
+          # An Accessibility (TCC) grant is keyed to the code signature, and an ad-hoc signature has
+          # no identity beyond its cdhash — which changes on every rebuild. So an ad-hoc Debug build
+          # lost the grant every time it was rebuilt, and `AXWindowTests` then XCTSkip themselves
+          # rather than fail: the run still reports "** TEST SUCCEEDED **", 23 tests quietly skipped.
+          # A certificate gives the signature a stable designated requirement, so the grant survives.
+          # This certificate only exists on the author's Mac; elsewhere (a contributor, a CI runner)
+          # append `CODE_SIGN_IDENTITY=-` to the xcodebuild invocation to build ad-hoc again.
+          CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"
         Release:
           ENABLE_HARDENED_RUNTIME: true
           CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"

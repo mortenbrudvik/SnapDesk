@@ -3,18 +3,30 @@ import ApplicationServices
 import XCTest
 @testable import SnapDesk
 
+/// Thrown in place of an `XCTSkip` when `SNAPDESK_REQUIRE_AX=1`, so the test stops at the point
+/// it would have skipped. It sits outside `AXWindowTests` because that class is `@MainActor` and
+/// `CustomStringConvertible.description` is not isolated to anything.
+private struct AccessibilityRequired: Error, CustomStringConvertible {
+    var description: String {
+        "SNAPDESK_REQUIRE_AX=1 and the Accessibility layer was not reachable"
+    }
+}
+
 /// Exercises `AXWindow` against real Accessibility calls, using windows the test host owns.
 ///
-/// A process may read and write its own Accessibility hierarchy without being trusted, so these
-/// run on a machine that has never granted SnapDesk anything — which is what makes the file
-/// testable at all. What they cannot cover is another app's window: refusing a frame, hanging
-/// past the messaging timeout, or honouring `AXEnhancedUserInterface`.
+/// Driving our own windows is what makes the file testable at all: no second app to launch, and
+/// every expectation checkable against the `NSWindow` on the other side. It is not free of TCC,
+/// though — on a machine that has not granted the test host Accessibility, our own windows are
+/// not vended over Accessibility and every test here skips (see `accessibilityIsRequired`).
+/// What they cannot cover is another app's window: refusing a frame, hanging past the messaging
+/// timeout, or honouring `AXEnhancedUserInterface`.
 ///
 /// They do need a window server that answers Accessibility requests, which a GitHub Actions
 /// runner does not have: there, enumerating our own windows takes the test host down instead of
-/// returning an error. CI therefore passes `-skip-testing:SnapDeskTests/AXWindowTests`, and
-/// this suite only runs locally. That is a real gap — a change to `AXWindow` has to be tested
-/// on a developer machine, because nothing on the runner guards it.
+/// returning an error. There is no CI in this repository today (no `.github`, no workflow of any
+/// kind), so this suite runs only locally; a runner added later will have to pass
+/// `-skip-testing:SnapDeskTests/AXWindowTests`. Either way it is a real gap — a change to
+/// `AXWindow` has to be tested on a developer machine, because nothing on a runner guards it.
 @MainActor
 final class AXWindowTests: XCTestCase {
     /// A titled window is 28pt taller than its content rect, so every expectation here is built
@@ -45,6 +57,58 @@ final class AXWindowTests: XCTestCase {
         return window
     }
 
+    // MARK: Requiring the Accessibility layer
+
+    /// Whether an unreachable Accessibility layer is a failure rather than a skip. Off unless
+    /// `SNAPDESK_REQUIRE_AX` — or `TEST_RUNNER_SNAPDESK_REQUIRE_AX`, which is the spelling that
+    /// survives an `xcodebuild` invocation — is set to `1`.
+    ///
+    /// A skipped test and a passing one are the same exit status: `xcodebuild` prints
+    /// "** TEST SUCCEEDED **" either way, and the skip count is a line of scrollback nobody
+    /// reads. This project has already had a run report success with "Executed 258 tests, with 23
+    /// tests skipped" where all 23 were this file — the Accessibility layer was not exercised at
+    /// all and nothing said so. A missing grant is the usual cause, and it can go missing without
+    /// anyone touching System Settings: the grant is keyed to the code signature, so an
+    /// ad-hoc-signed build loses it on every rebuild.
+    ///
+    /// The default stays a skip, so an ordinary local run on a machine without the grant is not a
+    /// wall of red. A run that has to *prove* `AXWindow` works sets the variable and gets a
+    /// failure instead of silence.
+    ///
+    /// Both spellings are read because the test host is launched by `xcodebuild`, not by the
+    /// shell that set the variable — and measured, only the prefixed one arrives. `xcodebuild`
+    /// forwards `TEST_RUNNER_`-prefixed variables into the host process with the prefix stripped
+    /// and passes nothing else through, so `SNAPDESK_REQUIRE_AX=1 xcodebuild … test` leaves this
+    /// `false` and the suite skips exactly as if the flag had not been set. From a shell, set
+    /// `TEST_RUNNER_SNAPDESK_REQUIRE_AX=1`; the unprefixed name is what a scheme or test-plan
+    /// environment entry would set.
+    private static var accessibilityIsRequired: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["SNAPDESK_REQUIRE_AX"] == "1"
+            || environment["TEST_RUNNER_SNAPDESK_REQUIRE_AX"] == "1"
+    }
+
+    /// The one place that decides what an unreachable Accessibility layer means. Every guard in
+    /// this file throws what this returns rather than raising `XCTSkip` itself, so the two
+    /// behaviours cannot drift apart per call site.
+    private func accessibilityUnavailable(
+        _ reason: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Error {
+        let message = """
+            \(reason). Grant Accessibility to the test host — the built SnapDesk.app that hosts \
+            these tests, not Xcode and not the terminal — under System Settings › Privacy & \
+            Security › Accessibility. The grant is keyed to the code signature, and an ad-hoc \
+            signature has no identity beyond its cdhash — which changes on every rebuild — so an \
+            ad-hoc-signed build drops the grant every time it is built: remove the stale entry \
+            and add the freshly built app again.
+            """
+        guard Self.accessibilityIsRequired else { return XCTSkip(message) }
+        XCTFail(message, file: file, line: line)
+        return AccessibilityRequired()
+    }
+
     /// The AX element for one of our own windows, found by the unique title `makeWindow` gave it.
     /// This is the raw lookup on purpose: the role-guard tests need an element that has not
     /// already been through `AXWindow`'s own filtering. Everything else goes through
@@ -54,7 +118,9 @@ final class AXWindowTests: XCTestCase {
         let error = AXUIElementCopyAttributeValue(
             AXUIElementCreateApplication(getpid()), kAXWindowsAttribute as CFString, &value
         )
-        try XCTSkipUnless(error == .success, "no Accessibility access to our own windows (AXError \(error.rawValue))")
+        guard error == .success else {
+            throw accessibilityUnavailable("no Accessibility access to our own windows (AXError \(error.rawValue))")
+        }
         let windows = try XCTUnwrap(value as? [AXUIElement])
         let match = windows.first { element in
             var title: CFTypeRef?
@@ -62,7 +128,7 @@ final class AXWindowTests: XCTestCase {
             return title as? String == window.title
         }
         guard let match else {
-            throw XCTSkip("no Accessibility access to our own windows (not vended)")
+            throw accessibilityUnavailable("no Accessibility access to our own windows (not vended)")
         }
         return match
     }
@@ -73,7 +139,7 @@ final class AXWindowTests: XCTestCase {
     private func axWindow(for window: NSWindow) throws -> AXWindow {
         let windows = AXWindow.windows(pid: getpid())
         guard let match = windows.first(where: { $0.title == window.title }) else {
-            throw XCTSkip("our own windows are not vended over Accessibility (\(windows.count) found)")
+            throw accessibilityUnavailable("our own windows are not vended over Accessibility (\(windows.count) found)")
         }
         return match
     }
@@ -130,7 +196,9 @@ final class AXWindowTests: XCTestCase {
     func testWindowsForOurProcessVendsOurWindow() throws {
         let window = makeWindow()
         let windows = AXWindow.windows(pid: getpid())
-        try XCTSkipIf(windows.isEmpty, "our own windows are not vended over Accessibility")
+        if windows.isEmpty {
+            throw accessibilityUnavailable("our own windows are not vended over Accessibility")
+        }
 
         XCTAssertTrue(windows.contains { $0.title == window.title })
     }

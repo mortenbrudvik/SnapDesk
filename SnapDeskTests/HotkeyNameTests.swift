@@ -66,8 +66,8 @@ final class HotkeyNameTests: XCTestCase {
 
     /// Two constants agreeing says nothing about which keys fire: the shortcut reaches
     /// `HotkeyCenter` and Carbon only after a JSON round trip through `UserDefaults`, and
-    /// `project.yml` pins KeyboardShortcuts only to `from: "2.0.0"`, so that encoding can change
-    /// under the app on any dependency update.
+    /// `project.yml` pins KeyboardShortcuts to a minor version, so that encoding can change
+    /// under the app on any patch or minor dependency update.
     func testTheLibraryResolvesEachNameToItsDeclaredDefault() {
         KeyboardShortcuts.reset(.capture, .editor)
 
