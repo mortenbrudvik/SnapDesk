@@ -1,0 +1,88 @@
+import Foundation
+import ServiceManagement
+
+/// The slice of `SMAppService` that `AppSettings` uses, so the toggle logic can be tested
+/// against a fake. `SMAppService` conforms as-is.
+protocol LoginItemService {
+    var status: SMAppService.Status { get }
+    func register() throws
+    func unregister() throws
+}
+
+extension SMAppService: LoginItemService {}
+
+@MainActor
+final class AppSettings: ObservableObject {
+    static let shared = AppSettings()
+
+    @Published var launchAtLogin: Bool {
+        didSet { applyLoginItem() }
+    }
+
+    /// Why the login item is not simply on or off (approval pending, last change failed).
+    /// Nil when there is nothing to explain.
+    @Published private(set) var loginItemMessage: String?
+
+    var loginItemStatus: SMAppService.Status {
+        loginItems.status
+    }
+
+    private let loginItems: any LoginItemService
+    private var isApplyingLoginItem = false
+
+    /// Nothing here is written to `UserDefaults`: `SMAppService` owns the login-item state, and
+    /// a local copy could only ever disagree with it — the user can remove the item in System
+    /// Settings without SnapDesk running.
+    init(loginItems: any LoginItemService = SMAppService.mainApp) {
+        self.loginItems = loginItems
+        launchAtLogin = loginItems.status == .enabled
+        loginItemMessage = Self.message(for: loginItems.status)
+    }
+
+    /// Re-reads the service. `SMAppService` is the source of truth and the user can change it in
+    /// System Settings at any time — approve the item, or remove it — while both values here were
+    /// computed once in `init`, so the pane kept asking for an approval already given. Called
+    /// whenever the Settings window comes to the front. Reads only: the `didSet` on
+    /// `launchAtLogin` would otherwise turn mirroring a removal into an `unregister()`.
+    func refresh() {
+        isApplyingLoginItem = true
+        defer { isApplyingLoginItem = false }
+        launchAtLogin = loginItems.status == .enabled
+        loginItemMessage = Self.message(for: loginItems.status)
+    }
+
+    private func applyLoginItem() {
+        // Swift fires `didSet` for every assignment that goes through the setter, including the
+        // rollback below (it is in a method, not lexically inside the observer). Without this
+        // guard a failing register() followed by a failing unregister() recurses until the
+        // stack overflows.
+        guard !isApplyingLoginItem else { return }
+        isApplyingLoginItem = true
+        defer { isApplyingLoginItem = false }
+
+        do {
+            if launchAtLogin {
+                try loginItems.register()
+            } else {
+                try loginItems.unregister()
+            }
+            loginItemMessage = Self.message(for: loginItems.status)
+        } catch {
+            let action = launchAtLogin ? "register" : "unregister"
+            Log.settings.error("Login item \(action, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            loginItemMessage = "Could not change Launch at login: \(error.localizedDescription)"
+            launchAtLogin = loginItems.status == .enabled
+        }
+    }
+
+    private static func message(for status: SMAppService.Status) -> String? {
+        switch status {
+        case .requiresApproval:
+            // register() succeeded, but macOS wants the user to approve the item before it
+            // will launch anything. Without this the toggle looks on while nothing happens.
+            return "Approve SnapDesk under System Settings › General › Login Items."
+        default:
+            return nil
+        }
+    }
+}

@@ -1,0 +1,753 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		000E392E00B85A0069939BDD /* LaunchHUDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C5B0C6279979C1994DF4BCD /* LaunchHUDTests.swift */; };
+		05730E0BE530F42931BB8D98 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C571FFEF04A8111943FE11E8 /* AppSettings.swift */; };
+		07B8A1F83FDD79C143565CE3 /* HotkeyNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DE8E9A8EDF304B04982CBC0 /* HotkeyNameTests.swift */; };
+		0A6DF3637B7755555E0540E1 /* StatusItemController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DE8E419E0E6BBBDE2A00DCA /* StatusItemController.swift */; };
+		2184E818FCB3FBBF1ACA92FD /* DisplayMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 394A892C76175ABBFED05D4B /* DisplayMapTests.swift */; };
+		266932C24176DACBD24ED7CF /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */; };
+		2932CE2CE1E94627395EFB05 /* CaptureFilterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4411FDDC99F3CED1C88994DA /* CaptureFilterTests.swift */; };
+		2EEE4133CEFB82B51915594B /* AXWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEB335F42098609B99EB411A /* AXWindowTests.swift */; };
+		31B59D3A5AB6D4AC0AA0B264 /* AccessibilityAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE67075EE5D3CB2A698B2939 /* AccessibilityAuthTests.swift */; };
+		387B320F676723428A41B6D6 /* WorkspaceDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B64F843425FF8F69796BA154 /* WorkspaceDocumentTests.swift */; };
+		388230E4B821534324120597 /* RecentsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4DDB4030076229862DB55E /* RecentsStore.swift */; };
+		3A17644FBB1009090D21730E /* RecaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */; };
+		43268BC857289061F6A813D4 /* CaptureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */; };
+		4839749F4EEA849828414491 /* WindowMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0B136E3CF45F5ABB30659B /* WindowMatcher.swift */; };
+		48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */; };
+		4F9A65A2686E52407FA650F9 /* LaunchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4830660A2F4A37987259AE48 /* LaunchServiceTests.swift */; };
+		50F780C1058966E8198C353F /* LiveDisplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843C29ADBF07D3821B29F8D3 /* LiveDisplay.swift */; };
+		5404AF387A31924CA6B7B5E0 /* ArgumentTokenizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0F8459CC765EF8A32DADA6 /* ArgumentTokenizerTests.swift */; };
+		593FC72BD6A217ADAAD5D8B0 /* CaptureServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CE264A0ADCD35F7515F7E5 /* CaptureServiceTests.swift */; };
+		627D3CD5C16F6FA230FE9FF9 /* FramePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */; };
+		62D1611D9CDF5032DC091362 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5565A4B9C999007C2C500D11 /* SettingsWindow.swift */; };
+		6A4C5153D6F7A9343A4D77F6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CBC9484D6EB1ABB70E92A3DE /* Assets.xcassets */; };
+		6B4B09F4F020593495748B6E /* MatchableWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */; };
+		6B7E6B80E8C50803246F2135 /* HotkeyName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5470D54268EA917BAD4609EA /* HotkeyName.swift */; };
+		6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183645B2A58A9D2406843FFE /* SnapDeskApp.swift */; };
+		775BE4A95E28E48E897EC840 /* WindowIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F91A2017BAE6949B8919190 /* WindowIdentity.swift */; };
+		7B88D16C433506C4DC3D6D26 /* ArgumentTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651FFE574E16AAA229BFCDF8 /* ArgumentTokenizer.swift */; };
+		7C0431E60E6A0B2935EA4AD3 /* RecentsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59955E0C5538777B4FDF7EC6 /* RecentsStoreTests.swift */; };
+		82A8B8FB0944E9D5AD56F16E /* EditorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B328CA1BE2567B0E7702F88 /* EditorSession.swift */; };
+		83F3955C7FBEBE401E19055A /* LaunchHUDController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0418AA50F3E1ADDCF1320C3 /* LaunchHUDController.swift */; };
+		8D2E25C2163771854541DB5F /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = 1507B4D577D78632A681E273 /* KeyboardShortcuts */; };
+		9483D758EBE672F802B6865A /* Recapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94F3E658352FDCE41F66BA13 /* Recapture.swift */; };
+		9A6FC3F011FF568CBF29745F /* Log.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD2C46611975D5689D5E9053 /* Log.swift */; };
+		9BBE3FEC5F5ABD6E3989CC23 /* AppDelegateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 672B4DFF6DA94F0E0488A75B /* AppDelegateTests.swift */; };
+		9DCCDC830E8A280EFFB8EE88 /* BundleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */; };
+		9ECB2CCD112223B6E659DD15 /* StatusItemControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F61A661BE758652B2AB8997 /* StatusItemControllerTests.swift */; };
+		A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */; };
+		A97A788B0CB8775E9F848F41 /* WorkspaceDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23DC0F0FEA8E928214B0F80 /* WorkspaceDocument.swift */; };
+		AE4110488393F7E3806EE252 /* FramePlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399E6704F533FFAE205B130E /* FramePlacementTests.swift */; };
+		AFE3928AE7267DB7FF7E2D0F /* LaunchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5226B0FB0E1CCF2CA1EC513 /* LaunchService.swift */; };
+		B477B2894300F5EC4592FE62 /* AccessibilityAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46DAFF30FB6E7A5A1AE19CC2 /* AccessibilityAuth.swift */; };
+		B6FF1D32162ACEAA8391EE6D /* CaptureFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */; };
+		BA3F204DE701B2055BD18B21 /* LaunchPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */; };
+		BD66B9063A4FDAED164D4D66 /* AppSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7082A4EDD1841038CF7AC261 /* AppSettingsTests.swift */; };
+		BFFE1C4753EBA46DFB9DEB63 /* AppDelegateOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D59324B30FE5C912A13940 /* AppDelegateOpenTests.swift */; };
+		C7B1BBC95E3A74D583916C73 /* SettingsWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD8F38608F6993AAE5523A88 /* SettingsWindowTests.swift */; };
+		C9C2010BA80C2354E2646388 /* HotkeyCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933369887FC6416E7E3AE65D /* HotkeyCenter.swift */; };
+		D331C1F89C88F294FE881C65 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CD9C915C37162DB14F88C8 /* EditorView.swift */; };
+		D6210A8B16110C59FFA2BC42 /* DisplayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */; };
+		D8223C8C01B548C04C553F03 /* WindowMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4582005BA218583F382BBB25 /* WindowMatcherTests.swift */; };
+		DC21F9EC9A8C28F3EA323490 /* EditorSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03E41502E7E35574CFC668CA /* EditorSessionTests.swift */; };
+		DDA986D571159EEE48DBEAE5 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 74D594D110A201FEEDDE208C /* ApplicationServices.framework */; };
+		DF40DD2C79A057C5882631FA /* LaunchPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */; };
+		E1B2DE029031994B3A815709 /* EditorWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBE77AC7C6100913D74B7EF4 /* EditorWindowTests.swift */; };
+		E3CFA5C2101BED58222DAFD8 /* CaptureOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52CECF12D85689F86F7B381E /* CaptureOrderingTests.swift */; };
+		E48598CA1CCCFC30C2DD83F3 /* WorkspaceFileTypeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10CC60B27DF75C059203EA4 /* WorkspaceFileTypeTests.swift */; };
+		ED5AA6A2938F168038683FDB /* AXWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 770B5075905BC7DBE64FC738 /* AXWindow.swift */; };
+		F0852E0EE76E76ED797B5A28 /* ScreenGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */; };
+		F2FAF7D0AE785F372C156BCE /* CaptureOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */; };
+		F9F6D92D51446C3F9D6C819D /* EditorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 664731B5909A34C7E4700228 /* EditorWindow.swift */; };
+		FB5D4B6E9E347869DE796A08 /* CaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F16E496C7C1DEA7D685DAE2 /* CaptureService.swift */; };
+		FB8355D5BB066F59398DD08A /* WorkspaceFileType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEA8AB28D3FE0FBC0B8BE78 /* WorkspaceFileType.swift */; };
+		FC4ABC7DCC0ED62CF9015A2D /* LaunchHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = 686FEFF16BD7C42105650EBD /* LaunchHUD.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		49D10847FC2D712311E32362 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 03764CB1D114097423B4CAF7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EFB69542CA3ED9873C74DD5B;
+			remoteInfo = SnapDesk;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		03CD9C915C37162DB14F88C8 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		03E41502E7E35574CFC668CA /* EditorSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSessionTests.swift; sourceTree = "<group>"; };
+		0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		0C0F8459CC765EF8A32DADA6 /* ArgumentTokenizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgumentTokenizerTests.swift; sourceTree = "<group>"; };
+		183645B2A58A9D2406843FFE /* SnapDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapDeskApp.swift; sourceTree = "<group>"; };
+		23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchableWindow.swift; sourceTree = "<group>"; };
+		2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrdering.swift; sourceTree = "<group>"; };
+		353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecaptureTests.swift; sourceTree = "<group>"; };
+		394A892C76175ABBFED05D4B /* DisplayMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayMapTests.swift; sourceTree = "<group>"; };
+		399E6704F533FFAE205B130E /* FramePlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePlacementTests.swift; sourceTree = "<group>"; };
+		3BC03DEA2D3281AC786633ED /* SnapDesk.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SnapDesk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3C0B136E3CF45F5ABB30659B /* WindowMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMatcher.swift; sourceTree = "<group>"; };
+		3DE8E419E0E6BBBDE2A00DCA /* StatusItemController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemController.swift; sourceTree = "<group>"; };
+		4411FDDC99F3CED1C88994DA /* CaptureFilterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFilterTests.swift; sourceTree = "<group>"; };
+		4582005BA218583F382BBB25 /* WindowMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMatcherTests.swift; sourceTree = "<group>"; };
+		46DAFF30FB6E7A5A1AE19CC2 /* AccessibilityAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAuth.swift; sourceTree = "<group>"; };
+		4830660A2F4A37987259AE48 /* LaunchServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchServiceTests.swift; sourceTree = "<group>"; };
+		52CECF12D85689F86F7B381E /* CaptureOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrderingTests.swift; sourceTree = "<group>"; };
+		5470D54268EA917BAD4609EA /* HotkeyName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyName.swift; sourceTree = "<group>"; };
+		5565A4B9C999007C2C500D11 /* SettingsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindow.swift; sourceTree = "<group>"; };
+		59955E0C5538777B4FDF7EC6 /* RecentsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentsStoreTests.swift; sourceTree = "<group>"; };
+		5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchPlanner.swift; sourceTree = "<group>"; };
+		5D4DDB4030076229862DB55E /* RecentsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecentsStore.swift; sourceTree = "<group>"; };
+		651FFE574E16AAA229BFCDF8 /* ArgumentTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgumentTokenizer.swift; sourceTree = "<group>"; };
+		664731B5909A34C7E4700228 /* EditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindow.swift; sourceTree = "<group>"; };
+		672B4DFF6DA94F0E0488A75B /* AppDelegateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateTests.swift; sourceTree = "<group>"; };
+		686FEFF16BD7C42105650EBD /* LaunchHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHUD.swift; sourceTree = "<group>"; };
+		6F16E496C7C1DEA7D685DAE2 /* CaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureService.swift; sourceTree = "<group>"; };
+		6F61A661BE758652B2AB8997 /* StatusItemControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusItemControllerTests.swift; sourceTree = "<group>"; };
+		6F91A2017BAE6949B8919190 /* WindowIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowIdentity.swift; sourceTree = "<group>"; };
+		7082A4EDD1841038CF7AC261 /* AppSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsTests.swift; sourceTree = "<group>"; };
+		74D594D110A201FEEDDE208C /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
+		770B5075905BC7DBE64FC738 /* AXWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXWindow.swift; sourceTree = "<group>"; };
+		7B328CA1BE2567B0E7702F88 /* EditorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSession.swift; sourceTree = "<group>"; };
+		7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePlacement.swift; sourceTree = "<group>"; };
+		803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenGeometryTests.swift; sourceTree = "<group>"; };
+		843C29ADBF07D3821B29F8D3 /* LiveDisplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveDisplay.swift; sourceTree = "<group>"; };
+		8EEA8AB28D3FE0FBC0B8BE78 /* WorkspaceFileType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileType.swift; sourceTree = "<group>"; };
+		933369887FC6416E7E3AE65D /* HotkeyCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyCenter.swift; sourceTree = "<group>"; };
+		94F3E658352FDCE41F66BA13 /* Recapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recapture.swift; sourceTree = "<group>"; };
+		9C5B0C6279979C1994DF4BCD /* LaunchHUDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHUDTests.swift; sourceTree = "<group>"; };
+		9DE8E9A8EDF304B04982CBC0 /* HotkeyNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyNameTests.swift; sourceTree = "<group>"; };
+		A5226B0FB0E1CCF2CA1EC513 /* LaunchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchService.swift; sourceTree = "<group>"; };
+		B10CC60B27DF75C059203EA4 /* WorkspaceFileTypeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileTypeTests.swift; sourceTree = "<group>"; };
+		B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenGeometry.swift; sourceTree = "<group>"; };
+		B64F843425FF8F69796BA154 /* WorkspaceDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDocumentTests.swift; sourceTree = "<group>"; };
+		B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		B8D59324B30FE5C912A13940 /* AppDelegateOpenTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateOpenTests.swift; sourceTree = "<group>"; };
+		BBE77AC7C6100913D74B7EF4 /* EditorWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowTests.swift; sourceTree = "<group>"; };
+		C571FFEF04A8111943FE11E8 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SnapDesk.entitlements; sourceTree = "<group>"; };
+		CBC9484D6EB1ABB70E92A3DE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCandidate.swift; sourceTree = "<group>"; };
+		CD2C46611975D5689D5E9053 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
+		CEB335F42098609B99EB411A /* AXWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXWindowTests.swift; sourceTree = "<group>"; };
+		DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SnapDeskTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFilter.swift; sourceTree = "<group>"; };
+		E0418AA50F3E1ADDCF1320C3 /* LaunchHUDController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchHUDController.swift; sourceTree = "<group>"; };
+		E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayMap.swift; sourceTree = "<group>"; };
+		E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchPlannerTests.swift; sourceTree = "<group>"; };
+		F1CE264A0ADCD35F7515F7E5 /* CaptureServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureServiceTests.swift; sourceTree = "<group>"; };
+		F23DC0F0FEA8E928214B0F80 /* WorkspaceDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDocument.swift; sourceTree = "<group>"; };
+		F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		FD8F38608F6993AAE5523A88 /* SettingsWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowTests.swift; sourceTree = "<group>"; };
+		FE67075EE5D3CB2A698B2939 /* AccessibilityAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAuthTests.swift; sourceTree = "<group>"; };
+		FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C9F9B823DA3EF25A0241CEA0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8D2E25C2163771854541DB5F /* KeyboardShortcuts in Frameworks */,
+				DDA986D571159EEE48DBEAE5 /* ApplicationServices.framework in Frameworks */,
+				266932C24176DACBD24ED7CF /* ServiceManagement.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		01B2F650BDE183E3D08F6146 /* SnapDeskTests */ = {
+			isa = PBXGroup;
+			children = (
+				FE67075EE5D3CB2A698B2939 /* AccessibilityAuthTests.swift */,
+				B8D59324B30FE5C912A13940 /* AppDelegateOpenTests.swift */,
+				672B4DFF6DA94F0E0488A75B /* AppDelegateTests.swift */,
+				7082A4EDD1841038CF7AC261 /* AppSettingsTests.swift */,
+				0C0F8459CC765EF8A32DADA6 /* ArgumentTokenizerTests.swift */,
+				CEB335F42098609B99EB411A /* AXWindowTests.swift */,
+				FF45CD3ADEBB9EF9E2C76F14 /* BundleTests.swift */,
+				4411FDDC99F3CED1C88994DA /* CaptureFilterTests.swift */,
+				52CECF12D85689F86F7B381E /* CaptureOrderingTests.swift */,
+				F1CE264A0ADCD35F7515F7E5 /* CaptureServiceTests.swift */,
+				394A892C76175ABBFED05D4B /* DisplayMapTests.swift */,
+				03E41502E7E35574CFC668CA /* EditorSessionTests.swift */,
+				BBE77AC7C6100913D74B7EF4 /* EditorWindowTests.swift */,
+				399E6704F533FFAE205B130E /* FramePlacementTests.swift */,
+				9DE8E9A8EDF304B04982CBC0 /* HotkeyNameTests.swift */,
+				9C5B0C6279979C1994DF4BCD /* LaunchHUDTests.swift */,
+				E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */,
+				4830660A2F4A37987259AE48 /* LaunchServiceTests.swift */,
+				353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */,
+				59955E0C5538777B4FDF7EC6 /* RecentsStoreTests.swift */,
+				803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */,
+				FD8F38608F6993AAE5523A88 /* SettingsWindowTests.swift */,
+				6F61A661BE758652B2AB8997 /* StatusItemControllerTests.swift */,
+				4582005BA218583F382BBB25 /* WindowMatcherTests.swift */,
+				B64F843425FF8F69796BA154 /* WorkspaceDocumentTests.swift */,
+				B10CC60B27DF75C059203EA4 /* WorkspaceFileTypeTests.swift */,
+			);
+			path = SnapDeskTests;
+			sourceTree = "<group>";
+		};
+		1CDC22A40BC66E9030755F48 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				46DAFF30FB6E7A5A1AE19CC2 /* AccessibilityAuth.swift */,
+				C571FFEF04A8111943FE11E8 /* AppSettings.swift */,
+				CD2C46611975D5689D5E9053 /* Log.swift */,
+				5D4DDB4030076229862DB55E /* RecentsStore.swift */,
+			);
+			path = Support;
+			sourceTree = "<group>";
+		};
+		1D22D147D3A9E11823DAD82E /* Input */ = {
+			isa = PBXGroup;
+			children = (
+				933369887FC6416E7E3AE65D /* HotkeyCenter.swift */,
+				5470D54268EA917BAD4609EA /* HotkeyName.swift */,
+			);
+			path = Input;
+			sourceTree = "<group>";
+		};
+		38FE7DA48337677809B7487E = {
+			isa = PBXGroup;
+			children = (
+				B2C30C3EBFC1D80A1E5E87F4 /* SnapDesk */,
+				01B2F650BDE183E3D08F6146 /* SnapDeskTests */,
+				744E88DA4AED4AA61066041C /* Frameworks */,
+				EB7FF4077B4EB0636197CC3C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4D1288C4B4D290690AAC4BE8 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */,
+				CBC9484D6EB1ABB70E92A3DE /* Assets.xcassets */,
+				F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */,
+				C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */,
+				183645B2A58A9D2406843FFE /* SnapDeskApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		6D7967CFB1208DE0EDBE77A8 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				651FFE574E16AAA229BFCDF8 /* ArgumentTokenizer.swift */,
+				770B5075905BC7DBE64FC738 /* AXWindow.swift */,
+				CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */,
+				DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */,
+				2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */,
+				6F16E496C7C1DEA7D685DAE2 /* CaptureService.swift */,
+				E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */,
+				7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */,
+				5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */,
+				A5226B0FB0E1CCF2CA1EC513 /* LaunchService.swift */,
+				843C29ADBF07D3821B29F8D3 /* LiveDisplay.swift */,
+				23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */,
+				94F3E658352FDCE41F66BA13 /* Recapture.swift */,
+				B55D19EE148666252ABD2A93 /* ScreenGeometry.swift */,
+				6F91A2017BAE6949B8919190 /* WindowIdentity.swift */,
+				3C0B136E3CF45F5ABB30659B /* WindowMatcher.swift */,
+				F23DC0F0FEA8E928214B0F80 /* WorkspaceDocument.swift */,
+				8EEA8AB28D3FE0FBC0B8BE78 /* WorkspaceFileType.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		744E88DA4AED4AA61066041C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				74D594D110A201FEEDDE208C /* ApplicationServices.framework */,
+				0ADB0DBB5D76C927BE2CE38E /* ServiceManagement.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		B2C30C3EBFC1D80A1E5E87F4 /* SnapDesk */ = {
+			isa = PBXGroup;
+			children = (
+				4D1288C4B4D290690AAC4BE8 /* App */,
+				6D7967CFB1208DE0EDBE77A8 /* Core */,
+				1D22D147D3A9E11823DAD82E /* Input */,
+				1CDC22A40BC66E9030755F48 /* Support */,
+				C191EEC9A5E19F8DECF1A79E /* UI */,
+			);
+			path = SnapDesk;
+			sourceTree = "<group>";
+		};
+		C191EEC9A5E19F8DECF1A79E /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				7B328CA1BE2567B0E7702F88 /* EditorSession.swift */,
+				03CD9C915C37162DB14F88C8 /* EditorView.swift */,
+				664731B5909A34C7E4700228 /* EditorWindow.swift */,
+				686FEFF16BD7C42105650EBD /* LaunchHUD.swift */,
+				E0418AA50F3E1ADDCF1320C3 /* LaunchHUDController.swift */,
+				5565A4B9C999007C2C500D11 /* SettingsWindow.swift */,
+				3DE8E419E0E6BBBDE2A00DCA /* StatusItemController.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		EB7FF4077B4EB0636197CC3C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3BC03DEA2D3281AC786633ED /* SnapDesk.app */,
+				DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A654410C35578DBEA4E3D248 /* SnapDeskTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 551876B22F6723E113A0EB58 /* Build configuration list for PBXNativeTarget "SnapDeskTests" */;
+			buildPhases = (
+				A944B98097DAF5D3BA6E3394 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				219626ACC82C2849300E8356 /* PBXTargetDependency */,
+			);
+			name = SnapDeskTests;
+			packageProductDependencies = (
+			);
+			productName = SnapDeskTests;
+			productReference = DDB5BB56A0A7AD90E72896D2 /* SnapDeskTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		EFB69542CA3ED9873C74DD5B /* SnapDesk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9D8E94E6159E283A9CF9BFA1 /* Build configuration list for PBXNativeTarget "SnapDesk" */;
+			buildPhases = (
+				99842F4D931E3F70DB0EAC85 /* Sources */,
+				2E470B4777A5BB3ADD2ABA36 /* Resources */,
+				C9F9B823DA3EF25A0241CEA0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SnapDesk;
+			packageProductDependencies = (
+				1507B4D577D78632A681E273 /* KeyboardShortcuts */,
+			);
+			productName = SnapDesk;
+			productReference = 3BC03DEA2D3281AC786633ED /* SnapDesk.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		03764CB1D114097423B4CAF7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					EFB69542CA3ED9873C74DD5B = {
+						DevelopmentTeam = 3GS65HFAFH;
+					};
+				};
+			};
+			buildConfigurationList = 985AD88B41AFA4BD83A06ED9 /* Build configuration list for PBXProject "SnapDesk" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 38FE7DA48337677809B7487E;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				CEFD14AA68DAB0C0580AF412 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = EB7FF4077B4EB0636197CC3C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				EFB69542CA3ED9873C74DD5B /* SnapDesk */,
+				A654410C35578DBEA4E3D248 /* SnapDeskTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2E470B4777A5BB3ADD2ABA36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A4C5153D6F7A9343A4D77F6 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		99842F4D931E3F70DB0EAC85 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ED5AA6A2938F168038683FDB /* AXWindow.swift in Sources */,
+				B477B2894300F5EC4592FE62 /* AccessibilityAuth.swift in Sources */,
+				A8AF242FB9A5351C716ECA12 /* AppDelegate.swift in Sources */,
+				05730E0BE530F42931BB8D98 /* AppSettings.swift in Sources */,
+				7B88D16C433506C4DC3D6D26 /* ArgumentTokenizer.swift in Sources */,
+				43268BC857289061F6A813D4 /* CaptureCandidate.swift in Sources */,
+				B6FF1D32162ACEAA8391EE6D /* CaptureFilter.swift in Sources */,
+				F2FAF7D0AE785F372C156BCE /* CaptureOrdering.swift in Sources */,
+				FB5D4B6E9E347869DE796A08 /* CaptureService.swift in Sources */,
+				D6210A8B16110C59FFA2BC42 /* DisplayMap.swift in Sources */,
+				82A8B8FB0944E9D5AD56F16E /* EditorSession.swift in Sources */,
+				D331C1F89C88F294FE881C65 /* EditorView.swift in Sources */,
+				F9F6D92D51446C3F9D6C819D /* EditorWindow.swift in Sources */,
+				627D3CD5C16F6FA230FE9FF9 /* FramePlacement.swift in Sources */,
+				C9C2010BA80C2354E2646388 /* HotkeyCenter.swift in Sources */,
+				6B7E6B80E8C50803246F2135 /* HotkeyName.swift in Sources */,
+				FC4ABC7DCC0ED62CF9015A2D /* LaunchHUD.swift in Sources */,
+				83F3955C7FBEBE401E19055A /* LaunchHUDController.swift in Sources */,
+				DF40DD2C79A057C5882631FA /* LaunchPlanner.swift in Sources */,
+				AFE3928AE7267DB7FF7E2D0F /* LaunchService.swift in Sources */,
+				50F780C1058966E8198C353F /* LiveDisplay.swift in Sources */,
+				9A6FC3F011FF568CBF29745F /* Log.swift in Sources */,
+				6B4B09F4F020593495748B6E /* MatchableWindow.swift in Sources */,
+				9483D758EBE672F802B6865A /* Recapture.swift in Sources */,
+				388230E4B821534324120597 /* RecentsStore.swift in Sources */,
+				F0852E0EE76E76ED797B5A28 /* ScreenGeometry.swift in Sources */,
+				62D1611D9CDF5032DC091362 /* SettingsWindow.swift in Sources */,
+				6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */,
+				0A6DF3637B7755555E0540E1 /* StatusItemController.swift in Sources */,
+				775BE4A95E28E48E897EC840 /* WindowIdentity.swift in Sources */,
+				4839749F4EEA849828414491 /* WindowMatcher.swift in Sources */,
+				A97A788B0CB8775E9F848F41 /* WorkspaceDocument.swift in Sources */,
+				FB8355D5BB066F59398DD08A /* WorkspaceFileType.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A944B98097DAF5D3BA6E3394 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2EEE4133CEFB82B51915594B /* AXWindowTests.swift in Sources */,
+				31B59D3A5AB6D4AC0AA0B264 /* AccessibilityAuthTests.swift in Sources */,
+				BFFE1C4753EBA46DFB9DEB63 /* AppDelegateOpenTests.swift in Sources */,
+				9BBE3FEC5F5ABD6E3989CC23 /* AppDelegateTests.swift in Sources */,
+				BD66B9063A4FDAED164D4D66 /* AppSettingsTests.swift in Sources */,
+				5404AF387A31924CA6B7B5E0 /* ArgumentTokenizerTests.swift in Sources */,
+				9DCCDC830E8A280EFFB8EE88 /* BundleTests.swift in Sources */,
+				2932CE2CE1E94627395EFB05 /* CaptureFilterTests.swift in Sources */,
+				E3CFA5C2101BED58222DAFD8 /* CaptureOrderingTests.swift in Sources */,
+				593FC72BD6A217ADAAD5D8B0 /* CaptureServiceTests.swift in Sources */,
+				2184E818FCB3FBBF1ACA92FD /* DisplayMapTests.swift in Sources */,
+				DC21F9EC9A8C28F3EA323490 /* EditorSessionTests.swift in Sources */,
+				E1B2DE029031994B3A815709 /* EditorWindowTests.swift in Sources */,
+				AE4110488393F7E3806EE252 /* FramePlacementTests.swift in Sources */,
+				07B8A1F83FDD79C143565CE3 /* HotkeyNameTests.swift in Sources */,
+				000E392E00B85A0069939BDD /* LaunchHUDTests.swift in Sources */,
+				BA3F204DE701B2055BD18B21 /* LaunchPlannerTests.swift in Sources */,
+				4F9A65A2686E52407FA650F9 /* LaunchServiceTests.swift in Sources */,
+				3A17644FBB1009090D21730E /* RecaptureTests.swift in Sources */,
+				7C0431E60E6A0B2935EA4AD3 /* RecentsStoreTests.swift in Sources */,
+				48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */,
+				C7B1BBC95E3A74D583916C73 /* SettingsWindowTests.swift in Sources */,
+				9ECB2CCD112223B6E659DD15 /* StatusItemControllerTests.swift in Sources */,
+				D8223C8C01B548C04C553F03 /* WindowMatcherTests.swift in Sources */,
+				387B320F676723428A41B6D6 /* WorkspaceDocumentTests.swift in Sources */,
+				E48598CA1CCCFC30C2DD83F3 /* WorkspaceFileTypeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		219626ACC82C2849300E8356 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EFB69542CA3ED9873C74DD5B /* SnapDesk */;
+			targetProxy = 49D10847FC2D712311E32362 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0952BD0B7237E495A870016B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		09904FC25396F11DAF3EF6E3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SnapDesk/App/SnapDesk.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: Morten Brudvik (3GS65HFAFH)";
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3GS65HFAFH;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SnapDesk/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk;
+				PRODUCT_NAME = SnapDesk;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		3064FF94F2D66977D668F770 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SnapDesk.app/Contents/MacOS/SnapDesk";
+			};
+			name = Release;
+		};
+		3068CD25BB7F8BF50803920C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = SnapDesk/App/SnapDesk.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: Morten Brudvik (3GS65HFAFH)";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 3GS65HFAFH;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SnapDesk/App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk;
+				PRODUCT_NAME = SnapDesk;
+				SDKROOT = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		456725151241E251947AC0CF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brudvik.snapdesk.tests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SnapDesk.app/Contents/MacOS/SnapDesk";
+			};
+			name = Debug;
+		};
+		C4AF850AF4DF3D9AEE7B094D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		551876B22F6723E113A0EB58 /* Build configuration list for PBXNativeTarget "SnapDeskTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				456725151241E251947AC0CF /* Debug */,
+				3064FF94F2D66977D668F770 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		985AD88B41AFA4BD83A06ED9 /* Build configuration list for PBXProject "SnapDesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C4AF850AF4DF3D9AEE7B094D /* Debug */,
+				0952BD0B7237E495A870016B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9D8E94E6159E283A9CF9BFA1 /* Build configuration list for PBXNativeTarget "SnapDesk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				09904FC25396F11DAF3EF6E3 /* Debug */,
+				3068CD25BB7F8BF50803920C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		CEFD14AA68DAB0C0580AF412 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1507B4D577D78632A681E273 /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CEFD14AA68DAB0C0580AF412 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 03764CB1D114097423B4CAF7 /* Project object */;
+}

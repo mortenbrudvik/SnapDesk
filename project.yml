@@ -1,0 +1,99 @@
+name: SnapDesk
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  bundleIdPrefix: com.brudvik
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    # up-to-next-minor, not up-to-next-major. This library's `Shortcut` Codable representation is
+    # persisted in UserDefaults and is load-bearing: it already changed from {key, modifiers} to
+    # {carbonKeyCode, carbonModifiers} across one major, and a silent change under an open range
+    # leaves every hotkey unbound with no error. `HotkeyNameTests` catches it, but only after the
+    # range has already let it in — so the range is the place to hold it.
+    minorVersion: "2.4.0"
+
+targets:
+  SnapDesk:
+    type: application
+    platform: macOS
+    sources:
+      - path: SnapDesk
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.brudvik.snapdesk
+        PRODUCT_NAME: SnapDesk
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: SnapDesk/App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: SnapDesk/App/SnapDesk.entitlements
+        ENABLE_HARDENED_RUNTIME: false
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: 3GS65HFAFH
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: false
+        ENABLE_APP_SANDBOX: false
+        COMBINE_HIDPI_IMAGES: true
+      configs:
+        Debug:
+          ENABLE_TESTABILITY: YES
+          # An Accessibility (TCC) grant is keyed to the code signature, and an ad-hoc signature has
+          # no identity beyond its cdhash — which changes on every rebuild. So an ad-hoc Debug build
+          # lost the grant every time it was rebuilt, and `AXWindowTests` then XCTSkip themselves
+          # rather than fail: the run still reports "** TEST SUCCEEDED **", 23 tests quietly skipped.
+          # A certificate gives the signature a stable designated requirement, so the grant survives.
+          # This certificate only exists on the author's Mac; elsewhere (a contributor, a CI runner)
+          # append `CODE_SIGN_IDENTITY=-` to the xcodebuild invocation to build ad-hoc again.
+          CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"
+        Release:
+          # A shipped build must not carry `get-task-allow`, which is what lets any process attach
+          # a debugger to it. Xcode injects it from the base entitlements for a development
+          # signature, so it is suppressed here and *only* here: leaving this off in Debug is what
+          # stopped the debugger attaching to Run and Test.
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          ENABLE_HARDENED_RUNTIME: true
+          CODE_SIGN_IDENTITY: "Developer ID Application: Morten Brudvik (3GS65HFAFH)"
+          OTHER_CODE_SIGN_FLAGS: --timestamp
+          ARCHS: arm64
+    dependencies:
+      - package: KeyboardShortcuts
+      - sdk: ApplicationServices.framework
+      - sdk: ServiceManagement.framework
+
+  SnapDeskTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - SnapDeskTests
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.brudvik.snapdesk.tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/SnapDesk.app/Contents/MacOS/SnapDesk
+        BUNDLE_LOADER: $(TEST_HOST)
+    dependencies:
+      - target: SnapDesk
+
+schemes:
+  SnapDesk:
+    build:
+      targets:
+        SnapDesk: all
+        SnapDeskTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - SnapDeskTests
+    archive:
+      config: Release
