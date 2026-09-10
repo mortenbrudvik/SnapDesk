@@ -5,7 +5,7 @@ import Foundation
 /// Why a slot did not end up placed. A case rather than prose so the HUD can decide what a
 /// failure means — whether to beep, whether to stay on screen — without matching on strings that
 /// a reworded message would silently break.
-enum SlotFailure: Equatable, Sendable {
+enum SlotFailure: Equatable, Sendable, CaseIterable {
     case appNotFound
     case launchFailed
     case launchTimedOut

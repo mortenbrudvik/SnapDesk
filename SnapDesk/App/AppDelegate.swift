@@ -171,8 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     /// Capture passes what it captured; Editor passes nil.
     var editorOpener: (CaptureOutcome?) -> Void = { _ in }
     var settingsOpener: () -> Void = {}
+    var helpOpener: () -> Void = {}
     private var editorWindow: EditorWindowController?
     private var settingsWindow: SettingsWindowController?
+    private var helpWindow: HelpWindowController?
     /// The task the most recently started restore runs in; awaiting it awaits every restore
     /// chained before it too.
     private(set) var launchChain: Task<Void, Never>?
@@ -199,6 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         settingsOpener = { [weak self] in
             self?.openSettings()
         }
+        helpOpener = { [weak self] in
+            self?.openHelp()
+        }
     }
 
     override convenience init() {
@@ -216,7 +221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             capturing: self,
             alerting: self,
             onEditor: { [weak self] in self?.editorOpener(nil) },
-            onSettings: { [weak self] in self?.settingsOpener() }
+            onSettings: { [weak self] in self?.settingsOpener() },
+            onHelp: { [weak self] in self?.helpOpener() }
         )
         hotkeys = HotkeyCenter(
             capturing: self,
@@ -423,5 +429,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             settingsWindow = SettingsWindowController()
         }
         settingsWindow?.showWindow(nil)
+    }
+
+    private func openHelp() {
+        if helpWindow == nil {
+            helpWindow = HelpWindowController()
+        }
+        helpWindow?.showWindow(nil)
     }
 }

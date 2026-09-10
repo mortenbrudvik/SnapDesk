@@ -31,6 +31,7 @@ final class StatusItemControllerTests: XCTestCase {
         var editorOpens = 0
         var settingsOpens = 0
         var aboutOpens = 0
+        var helpOpens = 0
 
         init(accessibilityTrusted: Bool) {
             self.accessibilityTrusted = accessibilityTrusted
@@ -99,6 +100,16 @@ final class StatusItemControllerTests: XCTestCase {
 
         XCTAssertEqual(fixture.environment.editorOpens, 1)
         XCTAssertEqual(fixture.environment.settingsOpens, 1)
+    }
+
+    /// The menu is also the only route to the help, for the same reason.
+    func testHelpItemOpensTheHelpWindow() throws {
+        let fixture = makeFixture()
+        defer { fixture.controller.removeFromStatusBar() }
+
+        try perform("Help", in: fixture.controller.menu)
+
+        XCTAssertEqual(fixture.environment.helpOpens, 1)
     }
 
     /// With no Dock icon and no app menu, the status menu is the only route to an About box —
@@ -203,7 +214,7 @@ final class StatusItemControllerTests: XCTestCase {
         let fixture = makeFixture(accessibilityTrusted: true)
         defer { fixture.controller.removeFromStatusBar() }
 
-        for title in ["Capture", "Editor", "Open…", "About SnapDesk", "Settings…", "Relaunch"] {
+        for title in ["Capture", "Editor", "Open…", "Help", "About SnapDesk", "Settings…", "Relaunch"] {
             let menuItem = try item(titled: title, in: fixture.controller.menu)
             XCTAssertTrue(fixture.controller.validateMenuItem(menuItem), title)
         }
@@ -225,6 +236,7 @@ final class StatusItemControllerTests: XCTestCase {
             onEditor: { environment.editorOpens += 1 },
             onSettings: { environment.settingsOpens += 1 },
             onAbout: { environment.aboutOpens += 1 },
+            onHelp: { environment.helpOpens += 1 },
             accessibilityTrusted: { environment.accessibilityTrusted }
         )
         return Fixture(

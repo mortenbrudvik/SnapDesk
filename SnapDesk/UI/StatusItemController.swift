@@ -12,6 +12,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
     private let onEditor: () -> Void
     private let onSettings: () -> Void
     private let onAbout: () -> Void
+    private let onHelp: () -> Void
     /// Injectable so tests can pin both permission states; the real check hits TCC and the
     /// window server, which a test rig cannot dictate.
     private let accessibilityTrusted: () -> Bool
@@ -35,6 +36,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         onEditor: @escaping () -> Void = {},
         onSettings: @escaping () -> Void = {},
         onAbout: @escaping () -> Void = { AboutPanel.show() },
+        onHelp: @escaping () -> Void = {},
         accessibilityTrusted: @escaping () -> Bool = { AccessibilityAuth.isEffectivelyTrusted }
     ) {
         self.recents = recents
@@ -44,6 +46,7 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         self.onEditor = onEditor
         self.onSettings = onSettings
         self.onAbout = onAbout
+        self.onHelp = onHelp
         self.accessibilityTrusted = accessibilityTrusted
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
@@ -101,6 +104,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
         updateAccessibilityRow()
+
+        let help = NSMenuItem(title: "Help", action: #selector(openHelp), keyEquivalent: "?")
+        help.target = self
+        menu.addItem(help)
 
         let about = NSMenuItem(title: "About SnapDesk", action: #selector(openAbout), keyEquivalent: "")
         about.target = self
@@ -191,6 +198,10 @@ final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     @objc private func openAccessibilitySettings() {
         AccessibilityAuth.openSystemSettings()
+    }
+
+    @objc private func openHelp() {
+        onHelp()
     }
 
     @objc private func openAbout() {
