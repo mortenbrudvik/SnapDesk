@@ -49,15 +49,42 @@ final class RecentsStoreTests: XCTestCase {
         XCTAssertEqual(store.urls, [first, second])
     }
 
-    func testCapIsTwenty() throws {
+    func testCapKeepsTheTwentyNewestAndDropsTheOldest() throws {
         let defaults = scratchDefaults()
         let store = RecentsStore(defaults: defaults)
 
+        var added: [URL] = []
         for i in 0..<21 {
-            store.add(try makeTempFile(named: "file-\(i)"))
+            let url = try makeTempFile(named: "file-\(i)")
+            added.append(url)
+            store.add(url)
         }
 
         XCTAssertEqual(store.urls.count, 20)
+        XCTAssertEqual(store.urls.map(\.path), added.dropFirst().reversed().map(\.path))
+        XCTAssertFalse(
+            store.urls.contains { $0.path == added[0].path },
+            "the oldest entry is the one the cap drops"
+        )
+    }
+
+    /// The cap has to hold on load too: a defaults dictionary that already holds more than twenty
+    /// entries would otherwise stay oversized until the next `add` happened to trim it.
+    func testLoadTrimsAnOversizedListAndWritesTheTrimBack() {
+        let defaults = scratchDefaults()
+        // Seeded through the raw keys `persist` writes, newest first, with no bookmarks — the
+        // shape an older build or a hand-edited plist leaves behind.
+        let paths = (0..<25).map { "/tmp/snapdesk-recent-\($0).snapdesk" }
+        defaults.set(paths, forKey: "recentsPaths")
+
+        let store = RecentsStore(defaults: defaults)
+
+        XCTAssertEqual(store.urls.map(\.path), Array(paths.prefix(20)))
+        XCTAssertEqual(
+            defaults.array(forKey: "recentsPaths") as? [String],
+            Array(paths.prefix(20)),
+            "the trim must be persisted, not just held in memory"
+        )
     }
 
     func testMissingFilesRemainListed() throws {

@@ -101,6 +101,83 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertTrue(session.isDirty)
     }
 
+    func testApplyCaptureWithNoWindowsIsRefusedAndLeavesTheDocumentIntact() {
+        let existing = savedWindow(
+            bundleIdentifier: "com.apple.Safari",
+            title: "GitHub",
+            arguments: "https://github.com"
+        )
+        let session = EditorSession(
+            document: makeDocument(name: "Coding", windows: [existing]),
+            fileURL: URL(fileURLWithPath: "/tmp/coding.snapdesk")
+        )
+        let rowIDs = session.rowIDs
+        XCTAssertFalse(session.isDirty)
+
+        let applied = session.applyCapture(
+            makeDocument(
+                name: "Untitled",
+                displays: [savedDisplay(id: "new", name: "New")],
+                windows: []
+            )
+        )
+
+        XCTAssertFalse(applied)
+        XCTAssertEqual(session.document.windows, [existing])
+        XCTAssertEqual(session.rowIDs, rowIDs)
+        XCTAssertEqual(session.document.displays.map(\.id), ["display"])
+        XCTAssertFalse(session.isDirty, "a capture that read nothing must not dirty a saved workspace")
+    }
+
+    func testRemoveWindowIgnoresAnIndexOutsideTheSlots() {
+        let session = EditorSession(
+            document: makeDocument(windows: [
+                savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub", arguments: ""),
+                savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo", arguments: ""),
+            ]),
+            fileURL: URL(fileURLWithPath: "/tmp/coding.snapdesk")
+        )
+
+        session.removeWindow(at: 2)
+        session.removeWindow(at: -1)
+
+        XCTAssertEqual(session.document.windows.count, 2)
+        XCTAssertEqual(session.rowIDs.count, 2)
+        XCTAssertFalse(session.isDirty)
+    }
+
+    func testSaveWritesToTheExistingFileURLAndClearsDirty() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editor-session-\(UUID().uuidString).snapdesk")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let session = EditorSession(document: makeDocument(name: "Coding"), fileURL: url)
+        session.document.name = "Coding Edited"
+        XCTAssertTrue(session.isDirty)
+
+        try session.save()
+
+        XCTAssertFalse(session.isDirty)
+        XCTAssertEqual(try WorkspaceDocument.load(from: url).name, "Coding Edited")
+    }
+
+    func testSaveToAddsTheURLToRecents() throws {
+        let suiteName = "com.brudvik.snapdesk.tests.editorsession.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        addTeardownBlock { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let recents = RecentsStore(defaults: defaults)
+        let session = EditorSession(document: makeDocument(name: "Coding"), fileURL: nil, recents: recents)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editor-session-\(UUID().uuidString).snapdesk")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+
+        try session.save(to: url)
+
+        XCTAssertEqual(
+            recents.urls.map { $0.resolvingSymlinksInPath().path },
+            [url.resolvingSymlinksInPath().path]
+        )
+    }
+
     func testSaveToWritesJSONThatLoadRoundTrips() throws {
         let session = EditorSession(
             document: makeDocument(
@@ -119,6 +196,24 @@ final class EditorSessionTests: XCTestCase {
         XCTAssertEqual(loaded, session.document)
         XCTAssertEqual(session.fileURL, url)
         XCTAssertFalse(session.isDirty)
+    }
+
+    /// The session must not report a save it did not make: the document is refused, so the file is
+    /// left alone and the work stays unsaved rather than being marked clean.
+    func testSavingADocumentTheLoaderWouldRejectFailsAndKeepsTheSessionDirty() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("editor-session-\(UUID().uuidString).snapdesk")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let session = EditorSession(document: makeDocument(name: "Coding"), fileURL: url)
+        session.document.windows[0].height = -600
+
+        XCTAssertThrowsError(try session.save()) { error in
+            guard case .corrupt(.invalid)? = error as? WorkspaceDocumentError else {
+                return XCTFail("expected .corrupt(.invalid), got \(error)")
+            }
+        }
+        XCTAssertTrue(session.isDirty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
     func testSaveWithoutURLThrowsNoFileURL() {

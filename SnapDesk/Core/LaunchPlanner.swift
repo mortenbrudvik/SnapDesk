@@ -67,6 +67,13 @@ enum LaunchPlanner {
         return plans
     }
 
+    /// Descending on purpose. Placing a window raises it, so walking the slots back-to-front
+    /// leaves slot 0 on top — the stacking order the workspace was captured in. Replacing this
+    /// with `Array(0..<windowCount)` would invert every restored stack while every placement
+    /// assertion still passed, because the set of placed windows would not change.
+    ///
+    /// This orders *placement* only. Which window each slot gets is settled before any of this
+    /// runs, by title first and then in slot order; see the claim loop in `LaunchService`.
     static func placeOrder(windowCount: Int) -> [Int] {
         guard windowCount > 0 else { return [] }
         return Array((0..<windowCount).reversed())

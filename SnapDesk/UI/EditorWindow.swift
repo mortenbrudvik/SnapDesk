@@ -10,6 +10,60 @@ struct EditorRecentItem: Identifiable, Equatable {
     var filename: String
 }
 
+enum EditorSaveChoice {
+    case save, discard, cancel
+}
+
+/// Every modal the editor puts in front of the user. Injected so the close, discard and save
+/// paths can be exercised without an NSAlert run loop.
+@MainActor
+protocol EditorPrompting: AnyObject {
+    func saveChoice(documentName: String) -> EditorSaveChoice
+    func saveDestination(suggestedName: String) -> URL?
+    /// `title` says what SnapDesk failed to do; `detail` carries the file and the underlying reason.
+    func report(title: String, detail: String?)
+}
+
+@MainActor
+final class AppKitEditorPrompt: EditorPrompting {
+    func saveChoice(documentName: String) -> EditorSaveChoice {
+        let alert = NSAlert()
+        alert.messageText = "Do you want to save the changes to “\(documentName)”?"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don’t Save")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .save
+        case .alertSecondButtonReturn:
+            return .discard
+        default:
+            return .cancel
+        }
+    }
+
+    func saveDestination(suggestedName: String) -> URL? {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType("com.brudvik.snapdesk") ?? .json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = suggestedName
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    func report(title: String, detail: String?) {
+        let alert = NSAlert()
+        alert.messageText = title
+        if let detail {
+            alert.informativeText = detail
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+}
+
 @MainActor
 final class EditorHost: ObservableObject {
     @Published var session: EditorSession
@@ -42,18 +96,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let recents: RecentsStore
     private let capture: () -> WorkspaceDocument?
     private let launch: (WorkspaceDocument) -> Void
-    private let host: EditorHost
+    private let prompt: any EditorPrompting
+    let host: EditorHost
     private var titleCancellable: AnyCancellable?
     private var didCenter = false
 
     init(
         recents: RecentsStore,
         capture: @escaping () -> WorkspaceDocument?,
-        launch: @escaping (WorkspaceDocument) -> Void
+        launch: @escaping (WorkspaceDocument) -> Void,
+        prompt: any EditorPrompting = AppKitEditorPrompt()
     ) {
         self.recents = recents
         self.capture = capture
         self.launch = launch
+        self.prompt = prompt
         let session = EditorSession(
             document: EditorSession.untitledDocument,
             fileURL: nil,
@@ -101,15 +158,26 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     func recapture() {
         guard let captured = capture() else { return }
-        host.session.applyCapture(captured)
+        // An empty capture means AX read nothing (a hung app, a revoked permission), not that the
+        // user closed every window, so `applyCapture` refuses it rather than blanking the document.
+        if !host.session.applyCapture(captured) {
+            Log.capture.error("recapture read no windows; the document was left unchanged")
+            prompt.report(
+                title: "Captured no windows",
+                detail: """
+                SnapDesk could not read any windows, so nothing was changed. \
+                Check that SnapDesk still has Accessibility access, then try again.
+                """
+            )
+        }
     }
 
     func prepareForTermination() -> Bool {
         guard host.session.isDirty else { return true }
-        switch saveDontCancel() {
+        switch prompt.saveChoice(documentName: host.session.document.name) {
         case .save:
             return performSave()
-        case .dont:
+        case .discard:
             return true
         case .cancel:
             return false
@@ -124,10 +192,10 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard host.session.isDirty else { return true }
-        switch saveDontCancel() {
+        switch prompt.saveChoice(documentName: host.session.document.name) {
         case .save:
             return performSave()
-        case .dont:
+        case .discard:
             revertAfterDiscard()
             return true
         case .cancel:
@@ -160,7 +228,6 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
                 onReveal: { [weak self] in self?.revealInFinder() },
                 onTrash: { [weak self] in self?.moveToTrash() },
                 onLaunch: { [weak self] in self?.launchCurrent() },
-                onLaunchAndEdit: { [weak self] in self?.launchAndEdit() },
                 onSave: { [weak self] in _ = self?.performSave() },
                 onSaveAs: { [weak self] in _ = self?.saveAs() },
                 onRemoveWindow: { [weak self] index in self?.removeWindow(at: index) }
@@ -206,7 +273,11 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     private func openFile(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else {
-            presentMessage("File not found")
+            Log.editor.error("could not open \(url.path, privacy: .public): the file no longer exists")
+            prompt.report(
+                title: "Could not open “\(url.lastPathComponent)”",
+                detail: "The file could not be found. It may have been moved, renamed, or deleted."
+            )
             refreshRecents()
             return
         }
@@ -215,9 +286,21 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
             recents.add(url)
             replaceSession(EditorSession(document: document, fileURL: url, recents: recents))
         } catch let error as WorkspaceDocumentError {
-            presentMessage(WorkspaceOpener.message(for: error))
+            Log.editor.error(
+                "could not read \(url.path, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            prompt.report(
+                title: "Could not open “\(url.lastPathComponent)”",
+                detail: WorkspaceOpener.message(for: error)
+            )
         } catch {
-            presentMessage("Could not read this workspace.")
+            Log.editor.error(
+                "could not read \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            prompt.report(
+                title: "Could not open “\(url.lastPathComponent)”",
+                detail: error.localizedDescription
+            )
         }
     }
 
@@ -257,7 +340,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
                 refreshRecents()
             }
         } catch {
-            presentMessage(error.localizedDescription)
+            Log.editor.error(
+                "could not trash \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            prompt.report(
+                title: "Could not move “\(url.lastPathComponent)” to the Trash",
+                detail: error.localizedDescription
+            )
         }
     }
 
@@ -265,45 +354,46 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         launch(host.session.document)
     }
 
-    private func launchAndEdit() {
-        launch(host.session.document)
-    }
-
     @discardableResult
     private func performSave() -> Bool {
-        if host.session.fileURL != nil {
-            do {
-                try host.session.save()
-                updateTitle()
-                return true
-            } catch {
-                presentMessage(error.localizedDescription)
-                return false
-            }
+        guard let url = host.session.fileURL else { return saveAs() }
+        do {
+            try host.session.save()
+            updateTitle()
+            return true
+        } catch {
+            Log.editor.error(
+                "could not save \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            prompt.report(
+                title: "Could not save “\(url.lastPathComponent)”",
+                detail: error.localizedDescription
+            )
+            return false
         }
-        return saveAs()
     }
 
     @discardableResult
     private func saveAs() -> Bool {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType("com.brudvik.snapdesk") ?? .json]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = suggestedFileName()
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        guard let url = prompt.saveDestination(suggestedName: suggestedFileName()) else { return false }
         do {
             try host.session.save(to: url)
             refreshRecents()
             updateTitle()
             return true
         } catch {
-            presentMessage(error.localizedDescription)
+            Log.editor.error(
+                "could not save \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            prompt.report(
+                title: "Could not save “\(url.lastPathComponent)”",
+                detail: error.localizedDescription
+            )
             return false
         }
     }
 
-    private func removeWindow(at index: Int) {
+    func removeWindow(at index: Int) {
         host.session.removeWindow(at: index)
         if host.selectedWindowIndex == index {
             host.selectedWindowIndex = nil
@@ -314,47 +404,42 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     private func confirmDiscardIfNeeded() -> Bool {
         guard host.session.isDirty else { return true }
-        switch saveDontCancel() {
+        switch prompt.saveChoice(documentName: host.session.document.name) {
         case .save:
             return performSave()
-        case .dont:
+        case .discard:
             return true
         case .cancel:
             return false
         }
     }
 
-    private enum CloseChoice {
-        case save, dont, cancel
-    }
-
-    private func saveDontCancel() -> CloseChoice {
-        let alert = NSAlert()
-        alert.messageText = "Do you want to save the changes to “\(host.session.document.name)”?"
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Don’t Save")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            return .save
-        case .alertSecondButtonReturn:
-            return .dont
-        default:
-            return .cancel
-        }
-    }
-
     private func revertAfterDiscard() {
-        if let url = host.session.fileURL, let document = try? WorkspaceDocument.load(from: url) {
-            replaceSession(EditorSession(document: document, fileURL: url, recents: recents))
-        } else {
+        guard let url = host.session.fileURL else {
             replaceSession(
                 EditorSession(
                     document: EditorSession.untitledDocument,
                     fileURL: nil,
                     recents: recents
                 )
+            )
+            return
+        }
+        do {
+            let document = try WorkspaceDocument.load(from: url)
+            replaceSession(EditorSession(document: document, fileURL: url, recents: recents))
+        } catch {
+            // The file is gone or unreadable. Resetting to Untitled here would look like SnapDesk
+            // wiped the workspace on the one action the user expected to be lossless, so keep the
+            // session on the file and let them save it back out.
+            let reason = error.localizedDescription
+            Log.editor.error("discard could not re-read \(url.path, privacy: .public): \(reason, privacy: .public)")
+            prompt.report(
+                title: "Could not reload “\(url.lastPathComponent)”",
+                detail: """
+                SnapDesk kept the version in the editor because the saved file could not be read. \
+                \(error.localizedDescription)
+                """
             )
         }
     }
@@ -413,12 +498,5 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private func sameFile(_ a: URL?, _ b: URL?) -> Bool {
         guard let a, let b else { return false }
         return a.resolvingSymlinksInPath().path == b.resolvingSymlinksInPath().path
-    }
-
-    private func presentMessage(_ message: String) {
-        let alert = NSAlert()
-        alert.messageText = message
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
     }
 }

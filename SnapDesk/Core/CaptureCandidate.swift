@@ -10,4 +10,8 @@ struct CaptureCandidate: Equatable {
     var activationPolicyIsRegular: Bool
     var isMinimized: Bool
     var cgWindowID: UInt32?
+    /// Whether the window vends any of the close / minimize / zoom button elements. Defaulted so
+    /// the many call sites that build a candidate to ask a question unrelated to window chrome do
+    /// not have to answer it; capture, which is the one that must, passes the real value.
+    var hasTitleBarButtons: Bool = true
 }

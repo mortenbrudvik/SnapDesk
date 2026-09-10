@@ -9,7 +9,12 @@ options:
 packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: "2.0.0"
+    # up-to-next-minor, not up-to-next-major. This library's `Shortcut` Codable representation is
+    # persisted in UserDefaults and is load-bearing: it already changed from {key, modifiers} to
+    # {carbonKeyCode, carbonModifiers} across one major, and a silent change under an open range
+    # leaves every hotkey unbound with no error. `HotkeyNameTests` catches it, but only after the
+    # range has already let it in — so the range is the place to hold it.
+    minorVersion: "2.4.0"
 
 targets:
   SnapDesk:

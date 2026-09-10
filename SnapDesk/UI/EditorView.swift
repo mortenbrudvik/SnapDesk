@@ -10,7 +10,6 @@ struct EditorView: View {
     var onReveal: () -> Void
     var onTrash: () -> Void
     var onLaunch: () -> Void
-    var onLaunchAndEdit: () -> Void
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onRemoveWindow: (Int) -> Void
@@ -26,7 +25,6 @@ struct EditorView: View {
             onReveal: onReveal,
             onTrash: onTrash,
             onLaunch: onLaunch,
-            onLaunchAndEdit: onLaunchAndEdit,
             onSave: onSave,
             onSaveAs: onSaveAs,
             onRemoveWindow: onRemoveWindow
@@ -44,7 +42,6 @@ private struct EditorSplitView: View {
     var onReveal: () -> Void
     var onTrash: () -> Void
     var onLaunch: () -> Void
-    var onLaunchAndEdit: () -> Void
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onRemoveWindow: (Int) -> Void
@@ -132,7 +129,6 @@ private struct EditorSplitView: View {
 
             HStack {
                 Button("Launch", action: onLaunch)
-                Button("Launch & Edit", action: onLaunchAndEdit)
                 Spacer()
                 Button("Save", action: onSave)
                     .keyboardShortcut("s", modifiers: .command)
@@ -153,14 +149,18 @@ private struct EditorSplitView: View {
                             .frame(maxWidth: .infinity)
                     }
                     ForEach(Array(zip(session.rowIDs, session.document.windows.indices)), id: \.0) { rowID, index in
-                        WindowSlotRow(
-                            window: $session.document.windows[index],
-                            displays: session.document.displays,
-                            isSelected: host.selectedWindowIndex == index,
-                            onSelect: { host.selectedWindowIndex = index },
-                            onRemove: { onRemoveWindow(index) }
-                        )
-                        .id(rowID)
+                        // Removing a row shrinks the array the by-index binding reads, so re-check
+                        // the index before subscripting it.
+                        if session.document.windows.indices.contains(index) {
+                            WindowSlotRow(
+                                window: $session.document.windows[index],
+                                displays: session.document.displays,
+                                isSelected: host.selectedWindowIndex == index,
+                                onSelect: { host.selectedWindowIndex = index },
+                                onRemove: { onRemoveWindow(index) }
+                            )
+                            .id(rowID)
+                        }
                     }
                 }
                 .padding(.trailing, 8)
@@ -216,8 +216,8 @@ private struct WindowSlotRow: View {
             HStack {
                 labeledNumber("X", value: $window.x)
                 labeledNumber("Y", value: $window.y)
-                labeledNumber("W", value: $window.width)
-                labeledNumber("H", value: $window.height)
+                labeledNumber("W", value: WindowSizeField.binding($window.width))
+                labeledNumber("H", value: WindowSizeField.binding($window.height))
             }
 
             HStack {
@@ -249,6 +249,26 @@ private struct WindowSlotRow: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 56)
         }
+    }
+}
+
+/// The W and H fields of a window row. `WorkspaceDocument.validate` refuses a side that is not
+/// positive on both the load and the save path, and the launch path hands the value straight to
+/// `AXWindow.setSize`, so the field has to keep one out of the document in the first place rather
+/// than let the user reach an unsaveable state and be told about it at Save.
+enum WindowSizeField {
+    /// One point. Clamping to the smallest legal side rather than rejecting the edit leaves a
+    /// half-typed "-" or "0" usable: the next keystroke replaces it.
+    static let minimum: Double = 1
+
+    static func clamped(_ value: Double) -> Double {
+        // `max` returns NaN unchanged, and NaN also fails `validate`'s `> 0` test.
+        guard value.isFinite else { return minimum }
+        return max(value, minimum)
+    }
+
+    static func binding(_ value: Binding<Double>) -> Binding<Double> {
+        Binding(get: { value.wrappedValue }, set: { value.wrappedValue = clamped($0) })
     }
 }
 
@@ -327,18 +347,18 @@ struct WorkspacePreview: View {
         }
     }
 
-    private static func windowCocoaFrame(_ window: SavedWindow, displays: [SavedDisplay]) -> CGRect {
+    static func windowCocoaFrame(_ window: SavedWindow, displays: [SavedDisplay]) -> CGRect {
         let display = displays.first(where: { $0.id == window.displayId }) ?? displays.first
         let visible = display?.visibleFrame.cgRect ?? .zero
         let relative = CGRect(x: window.x, y: window.y, width: window.width, height: window.height)
         return FramePlacement.cocoa(relative: relative, visibleFrame: visible)
     }
 
-    private static func unionFrames(_ frames: [CGRect]) -> CGRect {
+    static func unionFrames(_ frames: [CGRect]) -> CGRect {
         frames.reduce(into: CGRect.null) { $0 = $0.union($1) }
     }
 
-    private static func previewRect(
+    static func previewRect(
         cocoa: CGRect,
         bounds: CGRect,
         scale: CGFloat,

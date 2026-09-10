@@ -24,11 +24,16 @@ struct AXWindowSnapshot: Equatable {
     var cocoaFrame: CGRect
     var minimized: Bool
     var zoomed: Bool
+    /// See `CaptureFilter.isChromelessStandardWindow`. Defaulted for the tests that build a
+    /// snapshot to exercise something unrelated to window chrome.
+    var hasTitleBarButtons: Bool = true
 }
 
 @MainActor
 protocol AXCapturing {
-    func snapshot(pid: pid_t) -> [AXWindowSnapshot]
+    /// `displays` is the same list the capture records, and is what zoom is inferred against;
+    /// see `AXWindowCapturer.snapshot(pid:displays:)`.
+    func snapshot(pid: pid_t, displays: [LiveDisplay]) -> [AXWindowSnapshot]
 }
 
 @MainActor
@@ -81,7 +86,7 @@ struct CaptureService {
         for app in apps.apps() {
             let isSnapDesk = app.isSnapDesk || app.bundleIdentifier == snapDeskBundleID
             guard app.activationPolicyIsRegular, !isSnapDesk else { continue }
-            for window in ax.snapshot(pid: app.pid) {
+            for window in ax.snapshot(pid: app.pid, displays: liveDisplays) {
                 let candidate = CaptureCandidate(
                     bundleIdentifier: app.bundleIdentifier,
                     role: window.role,
@@ -90,7 +95,8 @@ struct CaptureService {
                     isSnapDesk: isSnapDesk,
                     activationPolicyIsRegular: app.activationPolicyIsRegular,
                     isMinimized: window.minimized,
-                    cgWindowID: window.cgWindowID
+                    cgWindowID: window.cgWindowID,
+                    hasTitleBarButtons: window.hasTitleBarButtons
                 )
                 if CaptureFilter.isEligible(candidate) {
                     eligible.append((app, window))
@@ -98,31 +104,36 @@ struct CaptureService {
             }
         }
 
-        let sorted = CaptureOrdering.sort(
-            candidates: eligible.enumerated().map { index, item in
+        let ordering = CaptureOrdering.sortedIndices(
+            of: eligible.map { item in
                 OrderedWindow(
                     cgWindowID: item.window.cgWindowID,
-                    isMinimized: item.window.minimized,
-                    label: String(index)
+                    isMinimized: item.window.minimized
                 )
             },
             onScreenFrontToBack: onScreen
         )
 
-        let windows: [SavedWindow] = sorted.compactMap { ordered in
-            guard let index = Int(ordered.label) else { return nil }
+        let windows: [SavedWindow] = ordering.compactMap { index in
             let item = eligible[index]
-            let assigned = Self.display(containing: item.window.cocoaFrame, in: liveDisplays)
+            // Every saved frame is relative to its display's visible frame, so a window with no
+            // display has no honest frame to record: writing absolute coordinates would give the
+            // same four fields a second meaning that only `displayId` distinguishes. This is
+            // reachable only with no display attached, when there is nothing to restore onto.
+            guard let assigned = Self.display(containing: item.window.cocoaFrame, in: liveDisplays) else {
+                Log.capture.error("skipping \(item.app.name, privacy: .public) window: no display to record it against")
+                return nil
+            }
             let relative = FramePlacement.relative(
                 cocoa: item.window.cocoaFrame,
-                visibleFrame: assigned?.visibleFrame ?? .zero
+                visibleFrame: assigned.visibleFrame
             )
             return SavedWindow(
                 bundleIdentifier: item.app.bundleIdentifier,
                 bundlePath: item.app.bundlePath,
                 name: item.app.name,
                 title: item.window.title,
-                displayId: assigned?.id ?? "",
+                displayId: assigned.id,
                 x: relative.origin.x,
                 y: relative.origin.y,
                 width: relative.size.width,
@@ -143,7 +154,7 @@ struct CaptureService {
             )
         }
 
-        Log.capture.info("captured \(windows.count) window(s) on \(savedDisplays.count) display(s)")
+        Log.capture.info("captured \(windows.count) of \(ordering.count) eligible window(s) on \(savedDisplays.count) display(s)")
 
         return WorkspaceDocument(
             version: WorkspaceDocument.currentVersion,
@@ -154,13 +165,13 @@ struct CaptureService {
         )
     }
 
+    /// The display a captured window is recorded against. This deliberately diverges from
+    /// `ScreenGeometry.display(containing:)`, which answers nil for a window that touches no
+    /// display: a window parked off every screen is still worth capturing, so it is recorded
+    /// against the primary display and comes back on-screen at restore, where `FramePlacement`
+    /// clamps it into that display's visible frame. Nil only when no display is attached.
     private static func display(containing frame: CGRect, in live: [LiveDisplay]) -> LiveDisplay? {
-        let geometry = live.map { Display(frame: $0.frame, visibleFrame: $0.visibleFrame) }
-        if let match = ScreenGeometry.display(containing: frame, in: geometry),
-           let index = geometry.firstIndex(of: match) {
-            return live[index]
-        }
-        return live.first
+        ScreenGeometry.display(containing: frame, in: live) ?? live.first
     }
 }
 
@@ -183,17 +194,28 @@ struct NSWorkspaceRunningApps: RunningAppSourcing {
 }
 
 struct AXWindowCapturer: AXCapturing {
-    func snapshot(pid: pid_t) -> [AXWindowSnapshot] {
+    /// Takes the display list rather than reading `NSScreen` per window. Zoom is inferred from
+    /// the frame against a display's visible frame, and building that list inside the loop would
+    /// re-resolve every screen's UUID — and log a line for every screen that has none — once per
+    /// captured window, against a snapshot of the screens the document does not record.
+    func snapshot(pid: pid_t, displays: [LiveDisplay]) -> [AXWindowSnapshot] {
         AXWindow.windows(pid: pid).compactMap { window in
-            guard let cocoaFrame = window.cocoaFrame else { return nil }
+            // A failed AX read must not be captured as `false`: the value goes to disk and every
+            // later restore reproduces it. `minimizedState` distinguishes the two, so a window
+            // whose state cannot be read is skipped rather than saved wrong. Zoom is inferred
+            // from the frame unwrapped here rather than read again, because a window that goes
+            // away between the two reads comes back nil from the second one, and the only thing
+            // left to save then is the lossy `false` this guard exists to keep off disk.
+            guard let cocoaFrame = window.cocoaFrame, let minimized = window.minimizedState else { return nil }
             return AXWindowSnapshot(
                 cgWindowID: window.cgWindowID,
                 title: window.title ?? "",
                 role: "AXWindow",
                 subrole: window.subrole,
                 cocoaFrame: cocoaFrame,
-                minimized: window.isMinimized,
-                zoomed: window.isZoomed
+                minimized: minimized,
+                zoomed: AXWindow.isZoomed(frame: cocoaFrame, on: displays),
+                hasTitleBarButtons: window.hasTitleBarButtons
             )
         }
     }

@@ -2,6 +2,16 @@ import AppKit
 
 @MainActor
 final class LaunchHUD: NSObject {
+    /// One line of the HUD. `isFailure` is carried alongside the text rather than re-derived from
+    /// it: what a row *means* is settled by `SlotStatus`, and reading it back out of the rendered
+    /// wording ties the colour to a string that exists to be reworded — the same mistake that once
+    /// left four of the five failures silent because the beep matched one specific message.
+    struct Row {
+        var name: String
+        var status: String
+        var isFailure: Bool
+    }
+
     let panel: NSPanel
     let dismissButton: NSButton
     let cancelButton: NSButton
@@ -41,10 +51,10 @@ final class LaunchHUD: NSObject {
         buildContent()
     }
 
-    func render(rows: [(name: String, status: String)]) {
+    func render(rows: [Row]) {
         rowsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         for row in rows {
-            rowsStack.addArrangedSubview(makeRow(name: row.name, status: row.status))
+            rowsStack.addArrangedSubview(makeRow(row))
         }
         panel.contentView?.layoutSubtreeIfNeeded()
         let fitting = contentStack.fittingSize
@@ -100,22 +110,22 @@ final class LaunchHUD: NSObject {
         ])
     }
 
-    private func makeRow(name: String, status: String) -> NSView {
-        let nameField = NSTextField(labelWithString: name)
+    private func makeRow(_ row: Row) -> NSView {
+        let nameField = NSTextField(labelWithString: row.name)
         nameField.lineBreakMode = .byTruncatingTail
         nameField.maximumNumberOfLines = 1
         nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let statusField = NSTextField(labelWithString: status)
+        let statusField = NSTextField(labelWithString: row.status)
         statusField.alignment = .right
-        statusField.textColor = status.hasPrefix("Failed") ? .systemRed : .secondaryLabelColor
+        statusField.textColor = row.isFailure ? .systemRed : .secondaryLabelColor
         statusField.setContentHuggingPriority(.required, for: .horizontal)
 
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = 12
-        row.addView(nameField, in: .leading)
-        row.addView(statusField, in: .trailing)
-        return row
+        let line = NSStackView()
+        line.orientation = .horizontal
+        line.spacing = 12
+        line.addView(nameField, in: .leading)
+        line.addView(statusField, in: .trailing)
+        return line
     }
 }

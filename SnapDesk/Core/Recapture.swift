@@ -1,6 +1,8 @@
 import Foundation
 
 enum Recapture {
+    /// The result follows `new`, so an empty capture merges to no windows at all. Callers decide
+    /// whether an empty capture is a real snapshot or a failed read; see `EditorSession.applyCapture`.
     static func merge(old: [SavedWindow], new: [SavedWindow]) -> [SavedWindow] {
         var unused = old
         return new.map { window in

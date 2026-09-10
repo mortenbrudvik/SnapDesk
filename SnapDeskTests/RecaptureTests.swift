@@ -61,6 +61,14 @@ final class RecaptureTests: XCTestCase {
         XCTAssertEqual(merged[0].arguments, "")
     }
 
+    func testEmptyCaptureMergesToNothingSoCallersMustRefuseIt() {
+        let old = [
+            savedWindow(bundleIdentifier: safari, title: "GitHub", arguments: "https://github.com")
+        ]
+
+        XCTAssertTrue(Recapture.merge(old: old, new: []).isEmpty)
+    }
+
     private func savedWindow(
         bundleIdentifier: String,
         title: String,

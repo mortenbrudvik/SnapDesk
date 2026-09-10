@@ -27,18 +27,11 @@ final class AppSettingsTests: XCTestCase {
 
     private struct Failure: Error {}
 
-    private func scratchDefaults() -> UserDefaults {
-        let name = "com.brudvik.snapdesk.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        addTeardownBlock { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
-        return defaults
-    }
-
     func testFailedRegistrationRollsTheToggleBackOnceWithoutRecursing() {
         let fake = FakeLoginItems()
         fake.registerError = Failure()
         fake.unregisterError = Failure()
-        let settings = AppSettings(defaults: scratchDefaults(), loginItems: fake)
+        let settings = AppSettings(loginItems: fake)
 
         settings.launchAtLogin = true
 
@@ -51,7 +44,7 @@ final class AppSettingsTests: XCTestCase {
     func testRegistrationThatNeedsApprovalKeepsTheToggleOnAndExplains() {
         let fake = FakeLoginItems()
         fake.statusAfterRegister = .requiresApproval
-        let settings = AppSettings(defaults: scratchDefaults(), loginItems: fake)
+        let settings = AppSettings(loginItems: fake)
 
         settings.launchAtLogin = true
 
@@ -63,7 +56,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testSuccessfulRegistrationClearsAnyMessage() {
         let fake = FakeLoginItems()
-        let settings = AppSettings(defaults: scratchDefaults(), loginItems: fake)
+        let settings = AppSettings(loginItems: fake)
 
         settings.launchAtLogin = true
 
@@ -75,7 +68,7 @@ final class AppSettingsTests: XCTestCase {
     func testTurningOffUnregisters() {
         let fake = FakeLoginItems()
         fake.status = .enabled
-        let settings = AppSettings(defaults: scratchDefaults(), loginItems: fake)
+        let settings = AppSettings(loginItems: fake)
         XCTAssertTrue(settings.launchAtLogin, "initial state mirrors the service")
 
         settings.launchAtLogin = false

@@ -228,6 +228,11 @@ final class LaunchPlannerTests: XCTestCase {
 
     func testPlaceOrderDescending() {
         XCTAssertEqual(LaunchPlanner.placeOrder(windowCount: 3), [2, 1, 0])
+        // Stated separately because this is the point of the reversal: slot 0 is placed last so it
+        // ends up frontmost. Ascending order would still visit every slot and still place every
+        // window, so only an assertion about the order catches a flip.
+        XCTAssertEqual(LaunchPlanner.placeOrder(windowCount: 3).last, 0)
+        XCTAssertEqual(LaunchPlanner.placeOrder(windowCount: 1), [0])
     }
 
     func testPlaceOrderEmpty() {

@@ -36,11 +36,17 @@ final class EditorSession: ObservableObject {
         rowIDs.remove(at: index)
     }
 
-    func applyCapture(_ captured: WorkspaceDocument) {
+    /// Returns `false` — leaving the session untouched — when the capture holds no windows.
+    /// `Recapture.merge` maps over the new windows, so an empty capture would otherwise replace
+    /// every configured slot with nothing and mark that loss dirty.
+    @discardableResult
+    func applyCapture(_ captured: WorkspaceDocument) -> Bool {
+        guard !captured.windows.isEmpty else { return false }
         document.displays = captured.displays
         document.windows = Recapture.merge(old: document.windows, new: captured.windows)
         rowIDs = document.windows.map { _ in UUID() }
         isDirty = true
+        return true
     }
 
     func save() throws {

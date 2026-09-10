@@ -3,7 +3,7 @@ import KeyboardShortcuts
 import UniformTypeIdentifiers
 
 @MainActor
-final class StatusItemController: NSObject, NSMenuDelegate {
+final class StatusItemController: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let statusItem: NSStatusItem
     private let recents: RecentsStore
     private weak var launching: (any WorkspaceLaunching)?
@@ -11,6 +11,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private weak var alerting: (any UserAlerting)?
     private let onEditor: () -> Void
     private let onSettings: () -> Void
+    /// Injectable so tests can pin both permission states; the real check hits TCC and the
+    /// window server, which a test rig cannot dictate.
+    private let accessibilityTrusted: () -> Bool
     private let recentsMenu = NSMenu()
     private let accessibilityItem = NSMenuItem(
         title: "",
@@ -29,7 +32,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         capturing: any WorkspaceCapturing,
         alerting: any UserAlerting,
         onEditor: @escaping () -> Void = {},
-        onSettings: @escaping () -> Void = {}
+        onSettings: @escaping () -> Void = {},
+        accessibilityTrusted: @escaping () -> Bool = { AccessibilityAuth.isEffectivelyTrusted }
     ) {
         self.recents = recents
         self.launching = launching
@@ -37,6 +41,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.alerting = alerting
         self.onEditor = onEditor
         self.onSettings = onSettings
+        self.accessibilityTrusted = accessibilityTrusted
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         if let button = statusItem.button {
@@ -124,9 +129,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func updateAccessibilityRow() {
-        let trusted = AccessibilityAuth.isEffectivelyTrusted
-        accessibilityItem.title = trusted ? "SnapDesk can move windows" : "SnapDesk needs Accessibility"
-        accessibilityItem.isEnabled = !trusted
+        accessibilityItem.title = accessibilityTrusted()
+            ? "SnapDesk can move windows"
+            : "SnapDesk needs Accessibility"
+    }
+
+    /// The Accessibility row is a status line, not a command, once permission is working.
+    /// Assigning `isEnabled` cannot express that: `NSMenu.autoenablesItems` is on, so AppKit
+    /// re-enables every item with a target and an action each time the menu opens, and asks
+    /// here instead.
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard menuItem === accessibilityItem else { return true }
+        return !accessibilityTrusted()
+    }
+
+    /// Takes the item out of the menu bar. Nothing else removes it — a released controller
+    /// leaves its `NSStatusItem` behind — so anything that builds controllers repeatedly, tests
+    /// above all, has to say when it is done with one.
+    func removeFromStatusBar() {
+        NSStatusBar.system.removeStatusItem(statusItem)
     }
 
     @objc private func captureWorkspace() {

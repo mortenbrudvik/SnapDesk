@@ -13,6 +13,23 @@ enum CaptureFilter {
         if c.role != "AXWindow" { return false }
         if let subrole = c.subrole, excludedSubroles.contains(subrole) { return false }
         if c.frame.width < 8 || c.frame.height < 8 { return false }
+        if isChromelessStandardWindow(c) { return false }
         return true
+    }
+
+    /// An Open/Save panel reports `AXStandardWindow` like an ordinary window and is large enough to
+    /// clear the size floor, so nothing above rejects it — and a workspace that captured one comes
+    /// back with a slot that can never be restored. What it does not have is any window chrome:
+    /// measured, every real window vends all three of close, minimize and zoom, while a panel
+    /// vends none.
+    ///
+    /// Both halves of the conjunction are load-bearing. Requiring *all three* to be missing keeps
+    /// the Electron and SwiftUI custom-chrome styles, which look chromeless but are not: a window
+    /// with `fullSizeContentView` and a transparent titlebar still vends all three, and so does one
+    /// whose buttons are merely `isHidden`. Requiring `AXStandardWindow` keeps a genuinely
+    /// borderless window — Electron's `frame: false` — which vends no buttons but which macOS
+    /// reports as `AXDialog`, and which may well be an app's real main window.
+    private static func isChromelessStandardWindow(_ c: CaptureCandidate) -> Bool {
+        c.subrole == "AXStandardWindow" && !c.hasTitleBarButtons
     }
 }

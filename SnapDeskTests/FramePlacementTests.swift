@@ -38,12 +38,34 @@ final class FramePlacementTests: XCTestCase {
         XCTAssertEqual(restored.size.height, 916, accuracy: 0.5)
     }
 
-    func testClampShiftsFullyOffscreenSoTitleBarIsInside() {
+    func testClampPullsAFullyOffscreenWindowToTheTopRightCorner() {
         let off = CGRect(x: 5000, y: 5000, width: 400, height: 300)
-        let clamped = FramePlacement.clamp(off, to: visible)
-        XCTAssertTrue(visible.intersects(clamped))
-        XCTAssertGreaterThanOrEqual(clamped.maxY, visible.minY + 80)
-        XCTAssertLessThanOrEqual(clamped.maxY, visible.maxY)
+        XCTAssertEqual(
+            FramePlacement.clamp(off, to: visible),
+            CGRect(x: 1112, y: 654, width: 400, height: 300)
+        )
+    }
+
+    func testClampPullsAWindowPastTheBottomLeftBackInside() {
+        let off = CGRect(x: -700, y: -500, width: 800, height: 600)
+        XCTAssertEqual(
+            FramePlacement.clamp(off, to: visible),
+            CGRect(x: 0, y: 38, width: 800, height: 600)
+        )
+    }
+
+    /// The clamp keeps the whole window inside `visible`, which is what leaves the title bar
+    /// grabbable — a taller-than-a-title-bar window is not parked with only its top strip on.
+    func testClampLeavesTheWholeWindowInsideNotJustItsTitleBar() {
+        let tall = CGRect(x: 0, y: 700, width: 800, height: 900)
+        let clamped = FramePlacement.clamp(tall, to: visible)
+        XCTAssertEqual(clamped, CGRect(x: 0, y: 54, width: 800, height: 900))
+        XCTAssertTrue(visible.contains(clamped))
+    }
+
+    func testClampLeavesAWindowAlreadyInsideUntouched() {
+        let inside = CGRect(x: 100, y: 138, width: 400, height: 300)
+        XCTAssertEqual(FramePlacement.clamp(inside, to: visible), inside)
     }
 
     func testClampShrinksLargerThanVisible() {

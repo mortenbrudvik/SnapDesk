@@ -33,13 +33,48 @@ struct WorkspaceOpener {
         }
     }
 
+    /// Defers to the error's own text so an older-format file is never described as a newer one,
+    /// and so a permission failure is not reported as a parse failure.
     static func message(for error: WorkspaceDocumentError) -> String {
-        switch error {
-        case .unsupportedVersion:
-            return "This workspace was saved with a newer SnapDesk"
-        case .corrupt:
-            return "Could not read this workspace."
+        error.message
+    }
+
+    /// The message to show *instead of* restoring, or nil when the document can be applied.
+    ///
+    /// `open(url:...)` gets this for free from `WorkspaceDocument.load`, but the editor restores a
+    /// document it holds in memory, with no file in between — so that path has to run the same
+    /// check itself or a negative size reaches `AXWindow` unchecked, which is what `validate()`
+    /// exists to stop.
+    static func rejection(of document: WorkspaceDocument) -> String? {
+        do {
+            try document.validate()
+            return nil
+        } catch let error as WorkspaceDocumentError {
+            return message(for: error)
+        } catch {
+            return "This workspace cannot be used."
         }
+    }
+}
+
+/// Numbers restores so a Cancel click can reach the ones queued behind the running one. A queued
+/// restore has not called `LaunchService.launch` yet — it is parked on the previous restore's task
+/// — so the service's own cancel cannot see it, and without this it starts anyway moments after
+/// the user stopped the restore it was waiting for.
+struct LaunchQueue {
+    private var generation = 0
+
+    /// The ticket a restore starting now should carry.
+    var ticket: Int { generation }
+
+    /// Abandons every restore queued at this moment, and only those: a restore the user starts
+    /// after the click takes a fresh ticket.
+    mutating func cancelQueued() {
+        generation += 1
+    }
+
+    func isStillWanted(_ ticket: Int) -> Bool {
+        ticket == generation
     }
 }
 
@@ -53,7 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     private lazy var launchHUD: LaunchHUDController = {
         let hud = LaunchHUDController()
         hud.onCancel = { [weak self] in
-            self?.launchService.cancel()
+            guard let self else { return }
+            self.launchService.cancel()
+            self.launchQueue.cancelQueued()
         }
         return hud
     }()
@@ -65,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     private var editorWindow: EditorWindowController?
     private var settingsWindow: SettingsWindowController?
     private var launchChain: Task<Void, Never>?
+    private var launchQueue = LaunchQueue()
 
     override init() {
         super.init()
@@ -112,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
 
     func launch(url: URL) {
         guard AccessibilityAuth.isEffectivelyTrusted else {
-            refuseUntrusted()
+            refuseUntrusted("restore")
             return
         }
         guard FileManager.default.fileExists(atPath: url.path) else {
@@ -130,9 +168,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         }
     }
 
+    /// The editor's in-memory restore. `launch(url:)` needs no check of its own because it goes
+    /// through `WorkspaceDocument.load`, which validates; this path has no file in between, so
+    /// without this a negative size or a window naming a display the document does not describe
+    /// would reach `AXWindow` directly — which is the hazard `validate()` exists for.
     func launch(document: WorkspaceDocument) {
         guard AccessibilityAuth.isEffectivelyTrusted else {
-            refuseUntrusted()
+            refuseUntrusted("restore")
+            return
+        }
+        if let rejection = WorkspaceOpener.rejection(of: document) {
+            show(message: rejection)
             return
         }
         startLaunch(document)
@@ -140,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
 
     func captureToEditor() {
         guard AccessibilityAuth.isEffectivelyTrusted else {
-            refuseUntrusted()
+            refuseUntrusted("capture")
             return
         }
         editorOpener(captureService.capture())
@@ -153,22 +199,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         alert.runModal()
     }
 
+    /// Chains restores rather than relying on `LaunchService`'s own gate: the HUD reset in
+    /// `present(title:)` happens outside that gate, so without the chain a second restore would
+    /// wipe the first one's rows while it was still running.
     private func startLaunch(_ document: WorkspaceDocument) {
         let previous = launchChain
+        let ticket = launchQueue.ticket
         launchChain = Task { [weak self] in
             await previous?.value
             guard let self else { return }
+            // A Cancel click while this restore was still waiting its turn was aimed at the queue
+            // as a whole; starting now would re-open the HUD the user had just stopped.
+            guard self.launchQueue.isStillWanted(ticket) else { return }
             self.launchHUD.present(title: document.name)
-            _ = await self.launchService.launch(document) { [weak self] progress in
+            let result = await self.launchService.launch(document) { [weak self] progress in
                 self?.launchHUD.update(progress)
                 self?.hudPresenter(progress)
             }
+            Log.launch.info("\(Self.summary(of: result, workspace: document.name), privacy: .public)")
         }
     }
 
-    private func refuseUntrusted() {
+    /// One log line describing how a restore ended. The HUD is transient and the per-slot failures
+    /// are only reported to it, so without this a restore that half-failed leaves nothing behind
+    /// to diagnose.
+    static func summary(of slots: [SlotProgress], workspace: String) -> String {
+        let failures = slots.compactMap { slot in
+            slot.status.failure.map { "\(slot.name): \($0.displayText)" }
+        }
+        let placed = slots.filter { $0.status == .placed }.count
+        let cancelled = slots.filter { $0.status == .cancelled }.count
+        var outcomes: [String] = []
+        if !failures.isEmpty {
+            outcomes.append("failed [\(failures.joined(separator: "; "))]")
+        }
+        // Counted separately and never named a failure: the user stopped these on purpose, and a
+        // log that calls a deliberate cancel a failure sends the next reader hunting for a bug.
+        if cancelled > 0 {
+            outcomes.append("cancelled \(cancelled) slot(s)")
+        }
+        guard !outcomes.isEmpty else {
+            return "restored \"\(workspace)\": \(placed) slot(s) placed"
+        }
+        return """
+            restored "\(workspace)": \(placed) of \(slots.count) slot(s) placed, \
+            \(outcomes.joined(separator: ", "))
+            """
+    }
+
+    /// Names the command in the log line and in the explanation the user gets. The beep stays:
+    /// it is the immediate answer to the keystroke, ahead of the alert that explains why.
+    private func refuseUntrusted(_ command: String) {
         NSSound.beep()
-        AccessibilityAuth.requestIfNeeded()
+        AccessibilityAuth.requestIfNeeded(for: command)
     }
 
     private func openEditor(captured: WorkspaceDocument?) {
@@ -178,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
                 capture: { [weak self] in
                     guard let self else { return nil }
                     guard AccessibilityAuth.isEffectivelyTrusted else {
-                        self.refuseUntrusted()
+                        self.refuseUntrusted("capture")
                         return nil
                     }
                     return self.captureService.capture()

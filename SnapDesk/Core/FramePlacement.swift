@@ -37,16 +37,18 @@ enum FramePlacement {
         return cocoa(relative: scaled, visibleFrame: liveVisible)
     }
 
-    static func clamp(_ frame: CGRect, to visible: CGRect, titleBar: CGFloat = 80) -> CGRect {
-        var result = frame
-        if result.width > visible.width || result.height > visible.height {
+    /// Fits `frame` entirely inside `visible`, shrinking it to `visible` when it does not fit.
+    ///
+    /// Full containment is also what keeps a restored window grabbable: `visible` already
+    /// excludes the menu bar and the dock, so a window inside it always has its title bar in
+    /// reach. A separate title-bar floor would be redundant here — and would be overwritten by
+    /// the containment clamp below — so there is none; relaxing the containment clamp means
+    /// reintroducing one.
+    static func clamp(_ frame: CGRect, to visible: CGRect) -> CGRect {
+        if frame.width > visible.width || frame.height > visible.height {
             return visible
         }
-        if result.maxX < visible.minX { result.origin.x = visible.minX }
-        if result.minX > visible.maxX { result.origin.x = visible.maxX - result.width }
-        let minTitleTop = visible.minY + titleBar
-        if result.maxY < minTitleTop { result.origin.y = minTitleTop - result.height }
-        if result.minY > visible.maxY { result.origin.y = visible.maxY - result.height }
+        var result = frame
         if result.maxX > visible.maxX { result.origin.x = visible.maxX - result.width }
         if result.minX < visible.minX { result.origin.x = visible.minX }
         if result.maxY > visible.maxY { result.origin.y = visible.maxY - result.height }

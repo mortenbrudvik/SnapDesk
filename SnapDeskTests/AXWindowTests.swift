@@ -28,6 +28,14 @@ final class AXWindowTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        // A programmatically created NSWindow defaults to `isReleasedWhenClosed`, which under ARC
+        // is an over-release: `close()` in the teardown block below drops the last retain while
+        // the block still holds the reference, and the block's own release then lands on freed
+        // memory. That corrupts the heap silently until something else — an in-flight
+        // miniaturize animation, once this file started exercising minimize and zoom — is
+        // allocated into it and crashes the whole test host in `-[_NSWindowTransformAnimation
+        // dealloc]`. ARC owns these windows; AppKit must not release them a second time.
+        window.isReleasedWhenClosed = false
         window.title = "AXWindowTests \(UUID().uuidString)"
         window.orderFrontRegardless()
         addTeardownBlock { @MainActor in
@@ -38,6 +46,9 @@ final class AXWindowTests: XCTestCase {
     }
 
     /// The AX element for one of our own windows, found by the unique title `makeWindow` gave it.
+    /// This is the raw lookup on purpose: the role-guard tests need an element that has not
+    /// already been through `AXWindow`'s own filtering. Everything else goes through
+    /// `axWindow(for:)`.
     private func element(for window: NSWindow) throws -> AXUIElement {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(
@@ -56,9 +67,44 @@ final class AXWindowTests: XCTestCase {
         return match
     }
 
+    /// Goes through `AXWindow.windows(pid:)` rather than repeating the lookup here, because that
+    /// function — and its role-filtering `compactMap` — is what every capture and every
+    /// placement runs through, and a test-local copy would leave it uncovered.
     private func axWindow(for window: NSWindow) throws -> AXWindow {
-        let element = try element(for: window)
-        return try XCTUnwrap(AXWindow(windowElement: element))
+        let windows = AXWindow.windows(pid: getpid())
+        guard let match = windows.first(where: { $0.title == window.title }) else {
+            throw XCTSkip("our own windows are not vended over Accessibility (\(windows.count) found)")
+        }
+        return match
+    }
+
+    /// AX writes reach the window server asynchronously — minimizing and zooming both animate —
+    /// so state written on one line is not readable on the next.
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else {
+                return XCTFail("timed out waiting for \(description)", file: file, line: line)
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    /// Gives the window server time to act on a button press before anything reads the result.
+    /// `waitUntil` cannot stand in wherever the condition is itself an AX write: a write that
+    /// lands mid-zoom is a user move as far as the window server is concerned, and cancels the
+    /// zoom the test is waiting for.
+    private func settle(_ seconds: TimeInterval = 0.4) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: deadline)
+        }
     }
 
     // MARK: The role guard
@@ -79,6 +125,16 @@ final class AXWindowTests: XCTestCase {
         XCTAssertNotNil(AXWindow(windowElement: element))
     }
 
+    // MARK: Lookup
+
+    func testWindowsForOurProcessVendsOurWindow() throws {
+        let window = makeWindow()
+        let windows = AXWindow.windows(pid: getpid())
+        try XCTSkipIf(windows.isEmpty, "our own windows are not vended over Accessibility")
+
+        XCTAssertTrue(windows.contains { $0.title == window.title })
+    }
+
     // MARK: Reading
 
     func testCocoaFrameMatchesTheWindowsOwnFrame() throws {
@@ -92,6 +148,19 @@ final class AXWindowTests: XCTestCase {
         let ax = try axWindow(for: window)
         XCTAssertEqual(ax.title, window.title)
         XCTAssertEqual(ax.pid, getpid())
+    }
+
+    func testAFailedReadIsNilRatherThanFalse() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        window.close()
+
+        // A closed window answers nothing, which used to arrive at the call site as a confident
+        // `false` and was written into the saved workspace as real window state.
+        XCTAssertNil(ax.minimizedState)
+        XCTAssertNil(ax.zoomedState)
+        XCTAssertFalse(ax.isMinimized, "the lossy accessors stay available for throwaway decisions")
+        XCTAssertFalse(ax.isZoomed)
     }
 
     // MARK: Writing
@@ -163,7 +232,7 @@ final class AXWindowTests: XCTestCase {
 
         XCTAssertEqual(ax.setCocoaFrame(CGRect(x: 130, y: 130, width: 280, height: 190)), .success)
 
-        XCTAssertEqual(before, ax.identity, "restore memory is keyed on this; a move must not change it")
+        XCTAssertEqual(before, ax.identity, "Restore claims windows by this id; a move must not change it")
     }
 
     func testDifferentWindowsHaveDifferentIdentities() throws {
@@ -177,16 +246,199 @@ final class AXWindowTests: XCTestCase {
     // MARK: Minimized
 
     func testMinimizedRoundTripsOnOurWindow() throws {
-        try XCTSkipIf(
-            (Bundle.main.object(forInfoDictionaryKey: "LSUIElement") as? NSNumber)?.boolValue == true,
-            "miniaturizing an LSUIElement test-host window takes the process down"
-        )
+        // This test used to skip on every machine: the host is LSUIElement, so the guard against
+        // miniaturizing a window with no Dock tile to fall into was never not true, and minimize
+        // had zero coverage anywhere. Becoming a regular app for the length of the test removes
+        // the hazard itself rather than the test; the policy goes back in teardown.
+        let policy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        addTeardownBlock { @MainActor in NSApp.setActivationPolicy(policy) }
+
         let window = makeWindow()
         let ax = try axWindow(for: window)
-        XCTAssertFalse(ax.isMinimized)
+        XCTAssertEqual(ax.minimizedState, false)
+
         XCTAssertEqual(ax.setMinimized(true), .success)
-        XCTAssertTrue(ax.isMinimized)
+        waitUntil("the window to be miniaturized") { window.isMiniaturized }
+        XCTAssertEqual(ax.minimizedState, true)
+
         XCTAssertEqual(ax.setMinimized(false), .success)
-        XCTAssertFalse(ax.isMinimized)
+        waitUntil("the window to come back") { !window.isMiniaturized }
+        XCTAssertEqual(ax.minimizedState, false)
+    }
+
+    func testEnsureNotMinimizedRaisesAMinimizedWindowAndLeavesAnOpenOneAlone() throws {
+        let policy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        addTeardownBlock { @MainActor in NSApp.setActivationPolicy(policy) }
+
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+
+        XCTAssertEqual(ax.ensureNotMinimized(), .success)
+        XCTAssertFalse(window.isMiniaturized, "a window that is already up must not be written to at all")
+
+        XCTAssertEqual(ax.setMinimized(true), .success)
+        waitUntil("the window to be miniaturized") { window.isMiniaturized }
+
+        XCTAssertEqual(ax.ensureNotMinimized(), .success)
+        waitUntil("the window to come back") { !window.isMiniaturized }
+    }
+
+    /// Un-minimizing is a precondition for the frame write that follows it, so it has to happen
+    /// when the state is *unknown* and not only when it is a confirmed `true`. The read fails for
+    /// exactly the window this matters for: one minimized long enough that its app is swapped out
+    /// and misses the messaging timeout on the first message. Branching on `isMinimized` reads
+    /// that as "not minimized", skips the un-minimize, and writes a frame into the Dock.
+    func testEnsureNotMinimizedActsOnAStateItCouldNotRead() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        window.close()
+
+        XCTAssertNil(ax.minimizedState)
+        XCTAssertFalse(ax.isMinimized, "the lossy accessor answers false, which is what skipped the write")
+        XCTAssertNotEqual(
+            ax.ensureNotMinimized(),
+            .success,
+            "an unknown state must be written to, and a refused write reported rather than skipped"
+        )
+    }
+
+    /// The two halves a placement has to tell apart. A refusal on a window *confirmed* minimized
+    /// is fatal — every write after it lands in the Dock and is swallowed while AX reports success
+    /// — and a refusal on a state that could not be read is not, because the window may never have
+    /// been minimized at all. `ensureNotMinimized()` returns the same `AXError` for both, which is
+    /// how a placement that needed no un-minimize at all came to be reported "could not position".
+    func testUnminimizeSeparatesAConfirmedStateFromAnUnreadableOne() throws {
+        let policy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        addTeardownBlock { @MainActor in NSApp.setActivationPolicy(policy) }
+
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+
+        XCTAssertEqual(ax.unminimize(), .alreadyUp, "a confirmed-up window must not be written to at all")
+        XCTAssertFalse(window.isMiniaturized)
+
+        XCTAssertEqual(ax.setMinimized(true), .success)
+        waitUntil("the window to be miniaturized") { window.isMiniaturized }
+
+        XCTAssertEqual(ax.unminimize(), .wasMinimized(write: .success))
+        waitUntil("the window to come back") { !window.isMiniaturized }
+    }
+
+    func testUnminimizeOnAnUnreadableStateWritesAndSaysTheStateWasUnknown() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        window.close()
+
+        XCTAssertNil(ax.minimizedState)
+        // The write still has to be attempted — skipping it on an unreadable state is what let a
+        // frame be written to a window that was still in the Dock — but the caller has to be able
+        // to see that nothing about this window was ever confirmed, so that a refusal here does not
+        // fail a placement whose frame write would have worked.
+        guard case .stateUnknown(let write) = ax.unminimize() else {
+            return XCTFail("an unreadable state must be written to blind and reported as unknown")
+        }
+        XCTAssertNotEqual(write, .success, "a closed window refuses the write; that refusal is not a verdict")
+    }
+
+    // MARK: Zoom
+
+    func testAWindowFillingTheVisibleFrameReadsAsZoomed() throws {
+        let visible = try XCTUnwrap(NSScreen.screens.first?.visibleFrame)
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        XCTAssertEqual(ax.zoomedState, false)
+
+        XCTAssertEqual(ax.setCocoaFrame(visible), .success)
+
+        // Zoom state is inferred from the frame because macOS vends no zoom attribute: the old
+        // implementation read a nonexistent "AXZoomed" and so answered false for every window
+        // on every machine, which is what capture wrote into the saved workspace.
+        XCTAssertEqual(ax.zoomedState, true)
+    }
+
+    func testZoomingPressesTheZoomButtonAndMovesTheRealWindow() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        let unzoomed = window.frame
+
+        XCTAssertEqual(ax.setZoomed(true), .success)
+
+        waitUntil("AppKit to report the window zoomed") { window.isZoomed }
+        XCTAssertNotEqual(window.frame, unzoomed, "the zoom must reach the window, not just the AX layer")
+        XCTAssertTrue(ax.isZoomed)
+
+        XCTAssertEqual(ax.setZoomed(false), .success)
+
+        waitUntil("AppKit to report the window un-zoomed") { !window.isZoomed }
+        XCTAssertEqual(window.frame, unzoomed, "un-zooming restores the frame the user had before")
+    }
+
+    /// Restore writes the saved frame before it restores zoom, and for a slot saved zoomed that
+    /// frame *is* the visible frame. The button is a toggle AppKit aims from its own frame test,
+    /// so the press it would make here is an *un*-zoom: the window jumps back to its pre-zoom size
+    /// — off the frame restore just wrote — while the press reports `.success` and the slot is
+    /// reported placed. Requesting a state the frame already confirms must move nothing.
+    func testZoomingAWindowThatAlreadyFillsTheScreenLeavesItThere() throws {
+        let visible = try XCTUnwrap(NSScreen.screens.first?.visibleFrame)
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        let beforePlacement = window.frame
+
+        XCTAssertEqual(ax.setCocoaFrame(visible), .success)
+        XCTAssertEqual(ax.zoomedState, true)
+
+        XCTAssertEqual(ax.setZoomed(true), .success)
+
+        settle()
+        XCTAssertEqual(window.frame, visible, "the window must stay on the frame the placement wrote")
+        XCTAssertNotEqual(window.frame, beforePlacement, "which is where a press would have sent it back to")
+        XCTAssertEqual(ax.zoomedState, true)
+    }
+
+    /// The press itself is directionless — it is `-[NSWindow zoom:]` — so pressing it twice has to
+    /// leave the window where it started. This is the primitive `setZoomed` guards; a caller that
+    /// reaches for it is on its own for the direction.
+    func testPressingTheZoomButtonTwiceReturnsTheWindowToWhereItWas() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        let before = window.frame
+
+        XCTAssertEqual(ax.pressZoomButton(), .success)
+        waitUntil("AppKit to report the window zoomed") { window.isZoomed }
+
+        XCTAssertEqual(ax.pressZoomButton(), .success)
+        waitUntil("AppKit to report the window un-zoomed") { !window.isZoomed }
+        XCTAssertEqual(window.frame, before)
+    }
+
+    /// The other half of the same guard: the button is a toggle, so "un-zoom" on a window that is
+    /// not zoomed would zoom it. A frame confirmed not to fill its display is the confirmation
+    /// that there is nothing to do, and there the press is the destructive move.
+    func testUnZoomingAWindowThatDoesNotFillTheScreenPressesNothing() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        let before = window.frame
+        XCTAssertEqual(ax.zoomedState, false)
+
+        XCTAssertEqual(ax.setZoomed(false), .success)
+
+        settle()
+        XCTAssertEqual(window.frame, before, "a press here would have zoomed the window instead")
+    }
+
+    func testUnZoomingWithAFrameThatCouldNotBeReadIsNotReportedAsSuccess() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        window.close()
+
+        XCTAssertNil(ax.zoomedState)
+        XCTAssertNotEqual(
+            ax.setZoomed(false),
+            .success,
+            "an unknown state is not the confirmed 'nothing to do' that skips the press"
+        )
     }
 }

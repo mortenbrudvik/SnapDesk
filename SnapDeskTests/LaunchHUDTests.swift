@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import SnapDesk
 
@@ -20,8 +21,15 @@ final class LaunchHUDTests: XCTestCase {
         }
     }
 
-    private func makeHUD(delay: FakeDelay = FakeDelay()) -> (LaunchHUDController, FakeDelay) {
-        (LaunchHUDController(delay: delay), delay)
+    @MainActor
+    private final class BeepCounter {
+        var count = 0
+    }
+
+    private func makeHUD(delay: FakeDelay = FakeDelay()) -> (LaunchHUDController, FakeDelay, BeepCounter) {
+        let beeps = BeepCounter()
+        let hud = LaunchHUDController(delay: delay, beep: { beeps.count += 1 })
+        return (hud, delay, beeps)
     }
 
     private func launchingSlots() -> [SlotProgress] {
@@ -31,8 +39,15 @@ final class LaunchHUDTests: XCTestCase {
         ]
     }
 
+    private func placedSlots() -> [SlotProgress] {
+        [
+            SlotProgress(index: 0, name: "Safari", status: .placed),
+            SlotProgress(index: 1, name: "Preview", status: .placed),
+        ]
+    }
+
     func testUpdateTwoLaunchingSlotsShowsRows() {
-        let (hud, delay) = makeHUD()
+        let (hud, delay, _) = makeHUD()
 
         hud.update(launchingSlots())
 
@@ -43,13 +58,10 @@ final class LaunchHUDTests: XCTestCase {
     }
 
     func testAllPlacedSchedulesDelayThenHides() {
-        let (hud, delay) = makeHUD()
+        let (hud, delay, _) = makeHUD()
         hud.update(launchingSlots())
 
-        hud.update([
-            SlotProgress(index: 0, name: "Safari", status: .placed),
-            SlotProgress(index: 1, name: "Preview", status: .placed),
-        ])
+        hud.update(placedSlots())
 
         XCTAssertTrue(hud.isVisible)
         XCTAssertEqual(delay.duration, .milliseconds(600))
@@ -62,34 +74,91 @@ final class LaunchHUDTests: XCTestCase {
     }
 
     func testCancelButtonInvokesOnCancel() {
-        let (hud, _) = makeHUD()
+        let (hud, _, _) = makeHUD()
         var cancelled = false
         hud.onCancel = { cancelled = true }
         hud.update(launchingSlots())
 
+        XCTAssertTrue(hud.cancelButton.isEnabled)
         hud.cancelButton.performClick(nil)
 
         XCTAssertTrue(cancelled)
     }
 
+    /// The HUD outlives the restore by the length of its auto-dismiss. A Cancel click landing in
+    /// that window has nothing left to cancel, so the button must not still be offering it.
+    func testCancelIsRefusedOnceEverySlotIsTerminal() {
+        let (hud, _, _) = makeHUD()
+        var cancelled = false
+        hud.onCancel = { cancelled = true }
+        hud.update(launchingSlots())
+
+        hud.update(placedSlots())
+
+        XCTAssertFalse(hud.cancelButton.isEnabled)
+        hud.cancelButton.performClick(nil)
+        XCTAssertFalse(cancelled)
+    }
+
+    func testPresentReArmsCancelAfterAFinishedRestore() {
+        let (hud, _, _) = makeHUD()
+        hud.update(placedSlots())
+        XCTAssertFalse(hud.cancelButton.isEnabled)
+
+        hud.present(title: "Writing")
+
+        XCTAssertTrue(hud.cancelButton.isEnabled)
+    }
+
     func testStatusTextForEachSlotStatus() {
-        let (hud, _) = makeHUD()
+        let (hud, _, _) = makeHUD()
 
         hud.update([
             SlotProgress(index: 0, name: "Safari", status: .pending),
             SlotProgress(index: 1, name: "Preview", status: .launching),
-            SlotProgress(index: 2, name: "Notes", status: .placed),
-            SlotProgress(index: 3, name: "Mail", status: .failed("App not found")),
+            SlotProgress(index: 2, name: "Notes", status: .matched),
+            SlotProgress(index: 3, name: "Music", status: .placed),
+            SlotProgress(index: 4, name: "Terminal", status: .cancelled),
+            SlotProgress(index: 5, name: "Mail", status: .failed(.appNotFound)),
         ])
 
         XCTAssertEqual(
             hud.rows.map(\.status),
-            ["Pending", "Launching", "Placed", "Failed: App not found"]
+            ["Pending", "Launching", "Ready", "Placed", "Cancelled", "Failed: App not found"]
         )
     }
 
+    /// Whether a row is a failure is a fact about the slot's status, and the row carries it as one.
+    /// Recovering it from the rendered wording — `status.hasPrefix("Failed")` — makes the colour
+    /// hostage to a string that exists to be reworded, which is exactly how the beep came to miss
+    /// four of the five failures.
+    func testRowsCarryFailureAsAStatusFactNotAsAPrefixOfTheirText() {
+        let (hud, _, _) = makeHUD()
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .placed),
+            SlotProgress(index: 1, name: "Preview", status: .cancelled),
+            SlotProgress(index: 2, name: "Notes", status: .failed(.noWindow)),
+        ])
+
+        XCTAssertEqual(hud.rows.map(\.isFailure), [false, false, true])
+        // And the flag is what the panel actually paints: only the failed row is red.
+        let red = statusLabels(in: hud.panel).filter { $0.textColor == .systemRed }
+        XCTAssertEqual(red.map(\.stringValue), ["Failed: No window"])
+    }
+
+    /// Every label the panel is currently showing, in the order it stacked them.
+    private func statusLabels(in panel: NSPanel) -> [NSTextField] {
+        func collect(_ view: NSView) -> [NSTextField] {
+            if let field = view as? NSTextField { return [field] }
+            return view.subviews.flatMap(collect)
+        }
+        guard let contentView = panel.contentView else { return [] }
+        return collect(contentView)
+    }
+
     func testDismissHidesAndFurtherUpdatesDoNotReshow() {
-        let (hud, delay) = makeHUD()
+        let (hud, delay, _) = makeHUD()
         var dismissed = false
         var cancelled = false
         hud.onDismiss = { dismissed = true }
@@ -102,17 +171,14 @@ final class LaunchHUDTests: XCTestCase {
         XCTAssertTrue(dismissed)
         XCTAssertFalse(cancelled)
 
-        hud.update([
-            SlotProgress(index: 0, name: "Safari", status: .placed),
-            SlotProgress(index: 1, name: "Preview", status: .placed),
-        ])
+        hud.update(placedSlots())
 
         XCTAssertFalse(hud.isVisible)
         XCTAssertNil(delay.pending)
     }
 
     func testPresentSetsPanelTitle() {
-        let (hud, _) = makeHUD()
+        let (hud, _, _) = makeHUD()
 
         hud.present(title: "Coding")
 
@@ -120,17 +186,137 @@ final class LaunchHUDTests: XCTestCase {
         XCTAssertTrue(hud.isVisible)
     }
 
-    func testMixedPlacedAndFailedAutoDismisses() {
-        let (hud, delay) = makeHUD()
+    /// A restore that lost a slot must not vanish after 600ms looking exactly like a clean one.
+    func testMixedPlacedAndFailedStaysOnScreen() {
+        let (hud, delay, _) = makeHUD()
         hud.update(launchingSlots())
 
         hud.update([
-            SlotProgress(index: 0, name: "Safari", status: .failed("Could not position")),
+            SlotProgress(index: 0, name: "Safari", status: .failed(.couldNotPosition)),
             SlotProgress(index: 1, name: "Preview", status: .placed),
         ])
 
+        XCTAssertNil(delay.pending)
+        XCTAssertTrue(hud.isVisible)
+    }
+
+    func testEverySlotFailedStaysOnScreen() {
+        let (hud, delay, _) = makeHUD()
+        hud.update(launchingSlots())
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
+            SlotProgress(index: 1, name: "Preview", status: .failed(.launchFailed)),
+        ])
+
+        XCTAssertNil(delay.pending)
+        XCTAssertTrue(hud.isVisible)
+    }
+
+    /// "App not found" and "Launch failed" are the two failures a restore hits most often; both
+    /// were silent while the beep was matched against one specific message.
+    func testEveryKindOfFailureBeepsOnceWhenItFirstAppears() {
+        let (hud, _, beeps) = makeHUD()
+        hud.update(launchingSlots())
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
+            SlotProgress(index: 1, name: "Preview", status: .launching),
+        ])
+        XCTAssertEqual(beeps.count, 1)
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
+            SlotProgress(index: 1, name: "Preview", status: .failed(.noWindow)),
+        ])
+        XCTAssertEqual(beeps.count, 2)
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
+            SlotProgress(index: 1, name: "Preview", status: .failed(.noWindow)),
+        ])
+        XCTAssertEqual(beeps.count, 2)
+    }
+
+    /// The whole point of Cancel is to make the restore go away. Treating the slots it stopped as
+    /// failures beeps at the user for doing what they asked for and then makes them dismiss the
+    /// HUD a second time.
+    func testCancellingThroughTheHUDIsSilentAndDismissesItself() {
+        let (hud, delay, beeps) = makeHUD()
+        var cancelled = false
+        hud.onCancel = { cancelled = true }
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .launching),
+            SlotProgress(index: 1, name: "Preview", status: .pending),
+            SlotProgress(index: 2, name: "Notes", status: .pending),
+        ])
+
+        hud.cancelButton.performClick(nil)
+        XCTAssertTrue(cancelled)
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .cancelled),
+            SlotProgress(index: 1, name: "Preview", status: .cancelled),
+            SlotProgress(index: 2, name: "Notes", status: .cancelled),
+        ])
+
+        XCTAssertEqual(beeps.count, 0)
         XCTAssertEqual(delay.duration, .milliseconds(600))
+
         delay.fire()
+
         XCTAssertFalse(hud.isVisible)
+    }
+
+    /// A single snapshot can turn several slots terminal at once — every slot of an app whose
+    /// bundle is missing. One beep per slot stacks into a noise that reads as a crash.
+    func testASnapshotThatFailsSeveralSlotsBeepsOnce() {
+        let (hud, _, beeps) = makeHUD()
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .launching),
+            SlotProgress(index: 1, name: "Preview", status: .launching),
+            SlotProgress(index: 2, name: "Notes", status: .launching),
+        ])
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
+            SlotProgress(index: 1, name: "Preview", status: .failed(.appNotFound)),
+            SlotProgress(index: 2, name: "Notes", status: .failed(.appNotFound)),
+        ])
+
+        XCTAssertEqual(beeps.count, 1)
+    }
+
+    /// A HUD the user has already dismissed has nothing left to say about the restore.
+    func testADismissedHUDStaysSilent() {
+        let (hud, _, beeps) = makeHUD()
+        hud.update(launchingSlots())
+        hud.dismissButton.performClick(nil)
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .failed(.appNotFound)),
+            SlotProgress(index: 1, name: "Preview", status: .failed(.noWindow)),
+        ])
+
+        XCTAssertEqual(beeps.count, 0)
+        XCTAssertFalse(hud.isVisible)
+    }
+
+    /// A restore can go terminal and then report more work — a queued slot, a retry. The dismiss
+    /// scheduled by the earlier snapshot must not fire against the newer one.
+    func testNewerProgressCancelsAScheduledAutoDismiss() {
+        let (hud, delay, _) = makeHUD()
+        hud.update(launchingSlots())
+        hud.update(placedSlots())
+        XCTAssertNotNil(delay.pending)
+
+        hud.update([
+            SlotProgress(index: 0, name: "Safari", status: .placed),
+            SlotProgress(index: 1, name: "Preview", status: .launching),
+        ])
+
+        delay.fire()
+
+        XCTAssertTrue(hud.isVisible)
     }
 }

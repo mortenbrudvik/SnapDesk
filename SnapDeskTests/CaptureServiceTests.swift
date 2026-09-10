@@ -171,6 +171,186 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertEqual(doc.displays, [savedDisplay(display)])
     }
 
+    /// Capture keeps a window parked off every screen, recording it against the primary display
+    /// so restore has somewhere to put it back — `ScreenGeometry` alone would answer "no display".
+    func testWindowOffEveryDisplayIsRecordedAgainstThePrimaryDisplay() {
+        let secondary = LiveDisplay(
+            id: "SECONDARY",
+            name: "Secondary",
+            frame: CGRect(x: 1512, y: 0, width: 1000, height: 600),
+            visibleFrame: CGRect(x: 1512, y: 0, width: 1000, height: 600),
+            scale: 1
+        )
+        let stranded = snapshot(
+            cgWindowID: 10,
+            title: "Stranded",
+            cocoaFrame: CGRect(x: 400, y: 9000, width: 400, height: 300)
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [stranded]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display, secondary])
+        )
+
+        let doc = service.capture()
+
+        XCTAssertEqual(doc.windows.count, 1)
+        XCTAssertEqual(doc.windows[0].displayId, display.id)
+        XCTAssertEqual(doc.windows[0].x, 400)
+        XCTAssertEqual(doc.windows[0].y, 8962)
+    }
+
+    /// With no display attached there is no visible frame to make the saved x/y relative to, so a
+    /// window is dropped rather than written in absolute coordinates under an empty `displayId` —
+    /// which would mean the same four fields carried two different meanings.
+    func testWithNoDisplayAttachedWindowsAreSkippedRatherThanRecordedInAbsoluteCoordinates() {
+        let window = snapshot(
+            cgWindowID: 10,
+            title: "GitHub",
+            cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300)
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [window]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [])
+        )
+
+        let doc = service.capture()
+
+        XCTAssertEqual(doc.displays, [])
+        XCTAssertEqual(doc.windows, [])
+    }
+
+    /// Two screens can report the same frame (mirroring), and the saved window must name the one
+    /// the lookup actually chose rather than whichever look-alike came first.
+    func testMirroredDisplaysKeepTheirOwnIdentities() {
+        let mirror = LiveDisplay(
+            id: "MIRROR",
+            name: "Mirror",
+            frame: display.frame,
+            visibleFrame: display.visibleFrame,
+            scale: display.scale
+        )
+        let window = snapshot(
+            cgWindowID: 10,
+            title: "GitHub",
+            cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300)
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [window]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [mirror, display])
+        )
+
+        let doc = service.capture()
+
+        XCTAssertEqual(doc.windows.count, 1)
+        XCTAssertEqual(doc.windows[0].displayId, mirror.id)
+    }
+
+    /// Zoom is the one window attribute capture infers rather than reads, and it has to be
+    /// inferred against the display list this capture records. Reading `NSScreen` inside the
+    /// per-window read instead answers from a second snapshot of the screens — one that can
+    /// disagree with the displays saved beside the window, and that no test can drive.
+    func testTheDisplayListCaptureRecordsIsWhatTheWindowReadIsGiven() {
+        let ax = FakeAX(windowsByPid: [
+            safari.pid: [
+                snapshot(
+                    cgWindowID: 10,
+                    title: "GitHub",
+                    cocoaFrame: CGRect(x: 200, y: 238, width: 400, height: 300)
+                ),
+            ],
+        ])
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: ax,
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        _ = service.capture()
+
+        XCTAssertEqual(ax.displaysPerCall, [[display]])
+    }
+
+    /// The inference behind `SavedWindow.zoomed`, on its own: a window filling the visible frame
+    /// of the display it sits on is as close to zoomed as macOS lets anything ask.
+    func testZoomIsInferredFromTheFrameAgainstTheDisplaysItIsHanded() {
+        let elsewhere = LiveDisplay(
+            id: "ELSEWHERE",
+            name: "Elsewhere",
+            frame: CGRect(x: 4000, y: 0, width: 1000, height: 800),
+            visibleFrame: CGRect(x: 4000, y: 0, width: 1000, height: 800),
+            scale: 1
+        )
+        let filling = display.visibleFrame
+
+        XCTAssertTrue(AXWindow.isZoomed(frame: filling, on: [display]))
+        XCTAssertTrue(
+            AXWindow.isZoomed(frame: filling.insetBy(dx: 1, dy: 1), on: [display]),
+            "a zoom lands up to a point short of the visible frame"
+        )
+        XCTAssertFalse(AXWindow.isZoomed(frame: filling.insetBy(dx: 3, dy: 3), on: [display]))
+
+        // The same frame, against screens it is nowhere near: the answer comes from the list it
+        // is handed and from nothing else.
+        XCTAssertFalse(AXWindow.isZoomed(frame: filling, on: [elsewhere]))
+        XCTAssertFalse(AXWindow.isZoomed(frame: filling, on: []))
+    }
+
+    /// Saving now validates, so a capture that recorded a window with a non-positive size would
+    /// hand the user a document they cannot save. It cannot: the eligibility filter's 8pt floor
+    /// runs before anything is recorded, and `CGRect.width`/`.height` standardize, so a negative
+    /// AX size is measured as its magnitude rather than slipping through as a negative number.
+    /// This pins the seam between the two — capture's output is always something `validate()`
+    /// accepts — rather than either half on its own.
+    func testCaptureNeverRecordsAWindowValidationWouldReject() throws {
+        let zeroWidth = snapshot(
+            cgWindowID: 30,
+            title: "Zero width",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 0, height: 400)
+        )
+        let zeroHeight = snapshot(
+            cgWindowID: 31,
+            title: "Zero height",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 400, height: 0)
+        )
+        let negative = snapshot(
+            cgWindowID: 32,
+            title: "Negative",
+            cocoaFrame: CGRect(x: 500, y: 438, width: -400, height: -300)
+        )
+        let usable = snapshot(
+            cgWindowID: 33,
+            title: "Usable",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600)
+        )
+
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [zeroWidth, zeroHeight, negative, usable]]),
+            order: FakeOrder(ids: [30, 31, 32, 33]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture(name: "Degenerate")
+
+        XCTAssertNoThrow(try doc.validate(), "a captured document must always be one the user can save")
+        for window in doc.windows {
+            XCTAssertGreaterThan(window.width, 0, "\(window.title) was recorded with a size that is not positive")
+            XCTAssertGreaterThan(window.height, 0, "\(window.title) was recorded with a size that is not positive")
+        }
+        XCTAssertEqual(doc.windows.map(\.title), ["Negative", "Usable"], "only the degenerate sizes are dropped")
+        // The negative rect is recorded as the rectangle it describes, not as negative numbers.
+        let repaired = try XCTUnwrap(doc.windows.first { $0.title == "Negative" })
+        XCTAssertEqual(repaired.width, 400)
+        XCTAssertEqual(repaired.height, 300)
+    }
+
     private func snapshot(
         cgWindowID: UInt32?,
         title: String,
@@ -207,9 +387,20 @@ private struct FakeApps: RunningAppSourcing {
     func apps() -> [RunningAppInfo] { running }
 }
 
-private struct FakeAX: AXCapturing {
-    var windowsByPid: [pid_t: [AXWindowSnapshot]]
-    func snapshot(pid: pid_t) -> [AXWindowSnapshot] { windowsByPid[pid] ?? [] }
+/// A class, not a struct, so a test can read back what the capture handed it.
+@MainActor
+private final class FakeAX: AXCapturing {
+    private let windowsByPid: [pid_t: [AXWindowSnapshot]]
+    private(set) var displaysPerCall: [[LiveDisplay]] = []
+
+    init(windowsByPid: [pid_t: [AXWindowSnapshot]]) {
+        self.windowsByPid = windowsByPid
+    }
+
+    func snapshot(pid: pid_t, displays: [LiveDisplay]) -> [AXWindowSnapshot] {
+        displaysPerCall.append(displays)
+        return windowsByPid[pid] ?? []
+    }
 }
 
 private struct FakeOrder: CGWindowOrdering {

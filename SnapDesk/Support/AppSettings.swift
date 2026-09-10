@@ -27,12 +27,13 @@ final class AppSettings: ObservableObject {
         loginItems.status
     }
 
-    private let defaults: UserDefaults
     private let loginItems: any LoginItemService
     private var isApplyingLoginItem = false
 
-    init(defaults: UserDefaults = .standard, loginItems: any LoginItemService = SMAppService.mainApp) {
-        self.defaults = defaults
+    /// Nothing here is written to `UserDefaults`: `SMAppService` owns the login-item state, and
+    /// a local copy could only ever disagree with it — the user can remove the item in System
+    /// Settings without SnapDesk running.
+    init(loginItems: any LoginItemService = SMAppService.mainApp) {
         self.loginItems = loginItems
         launchAtLogin = loginItems.status == .enabled
         loginItemMessage = Self.message(for: loginItems.status)

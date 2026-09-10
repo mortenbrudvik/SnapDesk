@@ -32,13 +32,20 @@ final class HotkeyCenter {
         logBindings()
     }
 
-    /// The library swallows Carbon registration failures (it prints to stdout, which an
-    /// LSUIElement app discards, and still records the shortcut as registered), so the best
-    /// diagnostic available is the effective binding per command at startup.
+    /// Logs what each command is *configured* to use. Deliberately not phrased as confirmation:
+    /// the library swallows Carbon registration failures (it prints to stdout, which an
+    /// LSUIElement app discards, and still reports the shortcut as set), so a combination
+    /// another app already owns logs exactly the same line and then never fires. Distinguishing
+    /// the two would need the Carbon status the library never surfaces; until then the only
+    /// real check is pressing the key. An unbound command, at least, can never fire, so that
+    /// one is a warning.
     private func logBindings() {
         for name in [KeyboardShortcuts.Name.capture, .editor] {
-            let shortcut = KeyboardShortcuts.getShortcut(for: name)
-            Log.hotkeys.info("\(name.rawValue, privacy: .public): \(shortcut.map(String.init(describing:)) ?? "unbound", privacy: .public)")
+            guard let shortcut = KeyboardShortcuts.getShortcut(for: name) else {
+                Log.hotkeys.warning("\(name.rawValue, privacy: .public): unbound, so it will never fire")
+                continue
+            }
+            Log.hotkeys.info("\(name.rawValue, privacy: .public): configured as \(String(describing: shortcut), privacy: .public) (configured, not confirmed registered)")
         }
     }
 }
