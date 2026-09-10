@@ -27,6 +27,18 @@ Add `-derivedDataPath <dir>` to keep build products out of `~/Library/Developer/
 
 Both configurations sign with the maintainer's Developer ID (`project.yml`), which is deliberate for Debug too — see below. On a machine without that certificate, append `CODE_SIGN_IDENTITY=-` to build Debug ad-hoc (verified); Release additionally sets hardened runtime and `--timestamp`, so it needs `CODE_SIGN_IDENTITY=- ENABLE_HARDENED_RUNTIME=NO OTHER_CODE_SIGN_FLAGS=`. Version numbers live in `project.yml` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
 
+The app icon is generated rather than hand-drawn, so it has readable source and can be adjusted:
+
+```bash
+swift Tools/IconRenderer/main.swift SnapDesk/App/Assets.xcassets/AppIcon.appiconset
+xcodegen generate    # only if the set of files changed; the PNGs themselves are already referenced
+```
+
+The geometry lives in the `Design` enum at the top of that file. Two details there are load-bearing
+and were arrived at by looking at the result: renders at or below 40px use wider gaps, solid white
+panes and pixel-snapped edges, and renders at or below 32px drop the shadow — a blur that lifts the
+icon at 512 is a grey halo two pixels wide at 16, which is the size this icon is seen at most.
+
 Reading the app's logs: `log` is a zsh builtin, so use the full path, and the info-level lines (the launch summary, the captured-window count, the per-restore summary) need `--info`:
 
 ```bash
@@ -99,5 +111,6 @@ and were expensive to establish.
 - **`RecentsStore` writes `recentsBookmarks` and `recentsPaths` to `UserDefaults.standard`**, which under `TEST_HOST` is the shipping app's own domain. Tests that touch it build a throwaway suite and remove it in teardown (`RecentsStoreTests.scratchDefaults`, and the same pattern in `EditorSessionTests`, `EditorWindowTests`, `StatusItemControllerTests`). `HotkeyNameTests` cannot: KeyboardShortcuts reads `UserDefaults.standard` itself, so it snapshots the app's whole persistent domain in `setUp` and writes it back in `tearDown`.
 - **Launch at login is `SMAppService.mainApp`**, with nothing mirrored into defaults — the user can remove the login item in System Settings while SnapDesk is not running. `register()` can succeed and still report `.requiresApproval`, which the Settings pane surfaces. `AppSettings.launchAtLogin` reassigns itself from inside a method called by its own `didSet`; the `isApplyingLoginItem` guard is what stops the recursion.
 - **`LSUIElement`**: no Dock icon and no app menu, so the SwiftUI `Settings` scene is inert and every window is built in AppKit by `AppDelegate`. Info.plist exports the `com.brudvik.snapdesk.workspace` UTI for the `.snapdesk` extension (deliberately not the bundle identifier — LaunchServices registers both), named once in `WorkspaceFileType` and pinned against the bundle's own declaration by `WorkspaceFileTypeTests`. Double-clicking a workspace reaches `application(_:open:)` — which AppKit delivers *inside* `finishLaunching`, before `applicationDidFinishLaunching`, so those URLs are buffered and drained by `completeLaunch()` rather than acted on while the status item and hot keys do not exist yet.
+- **The app icon is seen small, and mostly outside the app.** With no Dock icon, where it appears is the System Settings › Privacy & Security › Accessibility list, Login Items, and Finder — 16 to 32pt. `BundleTests` asserts the bundle names the asset and that every one of those sizes is present, because a dropped or renamed catalog compiles cleanly and simply shows a blank page there.
 - **`AccessibilityAuth.relaunch()`** asks to quit and leaves a flag; `AppDelegate.applicationShouldTerminate` starts the `/bin/sh` helper through `armRelaunchHelperIfPending()` once every veto has had its turn. The helper waits for this pid to exit and then `open`s the bundle — `open` on a running bundle only activates it, and only a fresh process picks up a new grant. It must not be started earlier: spawned before the quit was granted, it stayed armed for its ten-second ceiling after a *vetoed* quit, and a real ⌘Q inside that window brought the app straight back. A helper that cannot be started vetoes the quit, because the app would otherwise vanish and not return. `isEffectivelyTrusted` probes a real AX read against *another* application, because `AXIsProcessTrusted` can answer yes while every call still returns `.apiDisabled` until that relaunch.
 - **`HotkeyCenter` logs what each command is configured to use, not what registered.** KeyboardShortcuts swallows Carbon registration failures (it prints to stdout, which an `LSUIElement` app discards) and still reports the shortcut as set, so a combination another app already owns logs the same line and then never fires.

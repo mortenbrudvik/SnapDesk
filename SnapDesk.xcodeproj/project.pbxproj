@@ -28,6 +28,7 @@
 		593FC72BD6A217ADAAD5D8B0 /* CaptureServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CE264A0ADCD35F7515F7E5 /* CaptureServiceTests.swift */; };
 		627D3CD5C16F6FA230FE9FF9 /* FramePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */; };
 		62D1611D9CDF5032DC091362 /* SettingsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5565A4B9C999007C2C500D11 /* SettingsWindow.swift */; };
+		6A4C5153D6F7A9343A4D77F6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CBC9484D6EB1ABB70E92A3DE /* Assets.xcassets */; };
 		6B4B09F4F020593495748B6E /* MatchableWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */; };
 		6B7E6B80E8C50803246F2135 /* HotkeyName.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5470D54268EA917BAD4609EA /* HotkeyName.swift */; };
 		6C8CE6F2C09CFAF237DDC27E /* SnapDeskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183645B2A58A9D2406843FFE /* SnapDeskApp.swift */; };
@@ -133,6 +134,7 @@
 		BBE77AC7C6100913D74B7EF4 /* EditorWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWindowTests.swift; sourceTree = "<group>"; };
 		C571FFEF04A8111943FE11E8 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SnapDesk.entitlements; sourceTree = "<group>"; };
+		CBC9484D6EB1ABB70E92A3DE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCandidate.swift; sourceTree = "<group>"; };
 		CD2C46611975D5689D5E9053 /* Log.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Log.swift; sourceTree = "<group>"; };
 		CEB335F42098609B99EB411A /* AXWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AXWindowTests.swift; sourceTree = "<group>"; };
@@ -230,6 +232,7 @@
 			isa = PBXGroup;
 			children = (
 				B6E40F4C1B942FA9E1D96751 /* AppDelegate.swift */,
+				CBC9484D6EB1ABB70E92A3DE /* Assets.xcassets */,
 				F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */,
 				C7CD5C5F36D64A2F275BDE0A /* SnapDesk.entitlements */,
 				183645B2A58A9D2406843FFE /* SnapDeskApp.swift */,
@@ -332,6 +335,7 @@
 			buildConfigurationList = 9D8E94E6159E283A9CF9BFA1 /* Build configuration list for PBXNativeTarget "SnapDesk" */;
 			buildPhases = (
 				99842F4D931E3F70DB0EAC85 /* Sources */,
+				2E470B4777A5BB3ADD2ABA36 /* Resources */,
 				C9F9B823DA3EF25A0241CEA0 /* Frameworks */,
 			);
 			buildRules = (
@@ -382,6 +386,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2E470B4777A5BB3ADD2ABA36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A4C5153D6F7A9343A4D77F6 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		99842F4D931E3F70DB0EAC85 /* Sources */ = {
