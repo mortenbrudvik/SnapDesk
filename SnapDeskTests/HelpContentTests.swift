@@ -102,9 +102,22 @@ final class HelpContentTests: XCTestCase {
         let editor = try XCTUnwrap(HelpContent.topics().first { $0.title == "The editor" })
         let text = editor.entries.map(\.detail).joined(separator: " ").lowercased()
 
-        for control in ["title", "display", "minimized", "zoomed", "fullscreen", "arguments"] {
+        for control in ["title", "display", "minimized", "zoomed", "fullscreen", "document", "arguments"] {
             XCTAssertTrue(text.contains(control), "the editor topic never mentions \(control)")
         }
+    }
+
+    /// Restoring the same workspace twice opens the same page twice, because nothing checks
+    /// whether the window is already there. That is a real limitation the user meets on their
+    /// second restore, and help that omits it lets them think they are looking at a bug.
+    func testTheHelpIsHonestAboutRestoringTheSameDocumentTwice() throws {
+        let text = HelpContent.topics()
+            .flatMap(\.entries)
+            .map { "\($0.term) \($0.detail)" }
+            .joined(separator: " ")
+            .lowercased()
+
+        XCTAssertTrue(text.contains("twice"), "the help never warns that a second restore repeats a document")
     }
 
     func testTroubleshootingExplainsEveryFailureTheHUDCanShow() {

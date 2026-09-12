@@ -357,6 +357,53 @@ final class EditorWindowTests: XCTestCase {
 
     /// The row's W and H fields commit through this binding. They used to take a 0 or a negative
     /// side straight into the document, which then could not be saved or relaunched.
+    /// The field has to keep an unopenable value out of the document, for the reason
+    /// `WindowSizeField` does: `validate()` runs on save, and a user who can type their way into a
+    /// state the Save button then refuses has been led there by the editor.
+    ///
+    /// But a text field passes through every prefix of what is being typed, and "h", "ht", "htt"
+    /// are all unopenable. So a half-typed value leaves the document alone rather than clearing
+    /// it — the last good value stands until a new good value replaces it.
+    func testTheDocumentFieldStoresOnlyWhatCanActuallyBeOpened() {
+        XCTAssertEqual(WindowDocumentField.commit("https://example.com"), .store("https://example.com"))
+        XCTAssertEqual(WindowDocumentField.commit("  https://example.com  "), .store("https://example.com"))
+        XCTAssertEqual(WindowDocumentField.commit("/Users/me/notes.txt"), .store("/Users/me/notes.txt"))
+
+        // Emptying the field is a real intent: it clears the document.
+        XCTAssertEqual(WindowDocumentField.commit(""), .clear)
+        XCTAssertEqual(WindowDocumentField.commit("   "), .clear)
+
+        // Every one of these is also a prefix of something valid being typed.
+        for partial in ["h", "ht", "http", "https:", "not a url"] {
+            XCTAssertEqual(WindowDocumentField.commit(partial), .ignore, "\(partial) should be ignored")
+        }
+    }
+
+    /// Typing towards a URL never destroys the value already there, and finishing replaces it.
+    func testTypingTowardsAURLLeavesTheStoredDocumentAloneUntilItIsUsable() {
+        var stored: String? = "https://example.com/old"
+
+        WindowDocumentField.apply("h", to: &stored)
+        XCTAssertEqual(stored, "https://example.com/old", "a half-typed value must not destroy the old one")
+
+        WindowDocumentField.apply("https://example.com/new", to: &stored)
+        XCTAssertEqual(stored, "https://example.com/new")
+
+        WindowDocumentField.apply("", to: &stored)
+        XCTAssertNil(stored, "clearing the field clears the document")
+    }
+
+    /// Whatever the field stores has to survive the check the loader applies, or the editor can
+    /// still write a file it then refuses to open.
+    func testWhatTheDocumentFieldStoresAlwaysPassesValidation() throws {
+        var document = makeDocument(
+            name: "Coding",
+            windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+        )
+        WindowDocumentField.apply("https://example.com/a", to: &document.windows[0].document)
+        XCTAssertNoThrow(try document.validate())
+    }
+
     /// The stored field is `Bool?` where the toggle is `Bool`, and the missing third state is the
     /// whole difficulty: nil means the workspace was written before fullscreen was recorded, which
     /// restore reads as "leave the window alone". A two-state toggle has nowhere to show that, so

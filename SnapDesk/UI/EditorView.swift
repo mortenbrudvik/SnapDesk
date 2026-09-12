@@ -180,6 +180,7 @@ private struct WindowSlotRow: View {
     var isSelected: Bool
     var onSelect: () -> Void
     var onRemove: () -> Void
+    @State private var documentText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -226,6 +227,15 @@ private struct WindowSlotRow: View {
                 Toggle("Fullscreen", isOn: WindowFullscreenField.binding($window.fullscreen))
             }
 
+            // The typed text lives here rather than in the document, so a half-typed URL stays
+            // on screen while `WindowDocumentField` keeps it out of the file.
+            TextField("Document or URL", text: $documentText)
+                .textFieldStyle(.roundedBorder)
+                .onAppear { documentText = window.document ?? "" }
+                .onChange(of: documentText) { _, typed in
+                    WindowDocumentField.apply(typed, to: &window.document)
+                }
+
             TextField("Arguments", text: $window.arguments)
                 .textFieldStyle(.roundedBorder)
         }
@@ -249,6 +259,45 @@ private struct WindowSlotRow: View {
             TextField(label, value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 56)
+        }
+    }
+}
+
+/// The Document field of a window row.
+///
+/// It has the same job `WindowSizeField` has — keep the document out of a state `validate()` would
+/// refuse at Save, rather than let the user type their way into an unsaveable file and be told
+/// about it afterwards. The difficulty is that a text field passes through every prefix of what is
+/// being typed, and "h", "ht", "htt" are each unopenable on their own.
+///
+/// So a value that is not (yet) a location leaves the stored document alone rather than clearing
+/// it: the last good value stands until a new good value replaces it, and emptying the field is
+/// the one way to clear it.
+enum WindowDocumentField {
+    enum Commit: Equatable {
+        /// The field was emptied, which is a real intent: drop the document.
+        case clear
+        /// A location that can actually be opened.
+        case store(String)
+        /// Not a location — very likely a URL half-typed. Leave what is stored alone.
+        case ignore
+    }
+
+    static func commit(_ text: String) -> Commit {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .clear }
+        guard WorkspaceDocumentReference.isUsable(trimmed) else { return .ignore }
+        return .store(trimmed)
+    }
+
+    static func apply(_ text: String, to document: inout String?) {
+        switch commit(text) {
+        case .clear:
+            document = nil
+        case .store(let value):
+            document = value
+        case .ignore:
+            break
         }
     }
 }

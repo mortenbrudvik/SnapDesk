@@ -118,8 +118,20 @@ enum HelpContent {
                     term: "Window rows",
                     detail: """
                     One row per window. You can edit the title SnapDesk matches on, the display, \
-                    the position and size, whether it is minimized, zoomed or fullscreen, and \
-                    command-line arguments to pass when the app is launched.
+                    the position and size, whether it is minimized, zoomed or fullscreen, the \
+                    document it had open, and command-line arguments to pass when the app is \
+                    launched.
+                    """
+                ),
+                Entry(
+                    term: "Document or URL",
+                    detail: """
+                    The page or file the window had open. SnapDesk fills this in when the app tells \
+                    it — browsers, Terminal and TextEdit do; Safari and Finder do not — and \
+                    restoring opens it, which is what brings back a second and third window that \
+                    the app would not have reopened on its own. It also means restoring the same \
+                    workspace twice opens the same page twice: nothing checks whether the window \
+                    is already there. Clear the field to restore the window without it.
                     """
                 ),
                 Entry(
