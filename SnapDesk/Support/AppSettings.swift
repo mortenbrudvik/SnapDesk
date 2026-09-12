@@ -109,16 +109,21 @@ final class AppSettings: ObservableObject {
             var needsRewrite = false
             guard let resolved = storedStartupWorkspace.resolve(needsRewrite: &needsRewrite) else { return nil }
             if needsRewrite {
-                startupWorkspace = resolved
+                // Through the storage directly, never through the setter: assigning to the
+                // property from inside its own getter is how a re-entrant accessor is written by
+                // accident, and the compiler says so.
+                store(resolved)
             }
             return resolved
         }
-        set {
-            let entry = newValue.map(WorkspaceBookmark.make(for:)) ?? .none
-            storedStartupWorkspace = entry
-            defaults.set(entry.bookmark, forKey: Key.startupBookmark)
-            defaults.set(entry.path, forKey: Key.startupPath)
-        }
+        set { store(newValue) }
+    }
+
+    private func store(_ url: URL?) {
+        let entry = url.map(WorkspaceBookmark.make(for:)) ?? .none
+        storedStartupWorkspace = entry
+        defaults.set(entry.bookmark, forKey: Key.startupBookmark)
+        defaults.set(entry.path, forKey: Key.startupPath)
     }
 
     private enum Key {

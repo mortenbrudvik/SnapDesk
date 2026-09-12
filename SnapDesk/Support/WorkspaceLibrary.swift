@@ -69,15 +69,18 @@ final class WorkspaceLibrary {
             var needsRewrite = false
             guard let resolved = storedFolder.resolve(needsRewrite: &needsRewrite) else { return nil }
             if needsRewrite {
-                folder = resolved
+                // Through the storage directly, never through the setter; see `AppSettings.store`.
+                storeFolder(resolved)
             }
             return resolved
         }
-        set {
-            storedFolder = newValue.map(WorkspaceBookmark.make(for:)) ?? .none
-            defaults.set(storedFolder.bookmark, forKey: Key.folderBookmark)
-            defaults.set(storedFolder.path, forKey: Key.folderPath)
-        }
+        set { storeFolder(newValue) }
+    }
+
+    private func storeFolder(_ url: URL?) {
+        storedFolder = url.map(WorkspaceBookmark.make(for:)) ?? .none
+        defaults.set(storedFolder.bookmark, forKey: Key.folderBookmark)
+        defaults.set(storedFolder.path, forKey: Key.folderPath)
     }
 
     /// Every workspace worth showing: the nominated folder's contents merged with `recents`,
