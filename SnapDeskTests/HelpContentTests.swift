@@ -95,6 +95,18 @@ final class HelpContentTests: XCTestCase {
     /// The HUD is transient and its failures are terse. Every one it can show has to be explained
     /// somewhere the user can read at leisure — and adding a new failure should fail this test
     /// until it is.
+    /// A help page that lists what a window row can do, and silently omits one of its controls,
+    /// is worse than no list: the reader takes the list for the whole set. This is the test that
+    /// makes adding a control to the row a failing build until the help catches up.
+    func testTheEditorTopicMentionsEveryControlOnAWindowRow() throws {
+        let editor = try XCTUnwrap(HelpContent.topics().first { $0.title == "The editor" })
+        let text = editor.entries.map(\.detail).joined(separator: " ").lowercased()
+
+        for control in ["title", "display", "minimized", "zoomed", "fullscreen", "arguments"] {
+            XCTAssertTrue(text.contains(control), "the editor topic never mentions \(control)")
+        }
+    }
+
     func testTroubleshootingExplainsEveryFailureTheHUDCanShow() {
         let troubleshooting = HelpContent.topics().first { $0.title == HelpContent.troubleshootingTitle }
         let terms = Set(troubleshooting?.entries.map(\.term) ?? [])

@@ -223,6 +223,7 @@ private struct WindowSlotRow: View {
             HStack {
                 Toggle("Minimized", isOn: $window.minimized)
                 Toggle("Zoomed", isOn: $window.zoomed)
+                Toggle("Fullscreen", isOn: WindowFullscreenField.binding($window.fullscreen))
             }
 
             TextField("Arguments", text: $window.arguments)
@@ -249,6 +250,21 @@ private struct WindowSlotRow: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 56)
         }
+    }
+}
+
+/// The Fullscreen toggle of a window row. The stored field is `Bool?` and the toggle is `Bool`,
+/// and the missing third state is the point: nil means the workspace was written before fullscreen
+/// was recorded, which restore reads as "leave this window alone" rather than as false. A
+/// two-state toggle has nowhere to show that, so it displays nil as off — and a write always
+/// records an explicit value, because a user reaching for the toggle is an intent where an
+/// untouched old file is not.
+enum WindowFullscreenField {
+    static func binding(_ source: Binding<Bool?>) -> Binding<Bool> {
+        Binding(
+            get: { source.wrappedValue ?? false },
+            set: { source.wrappedValue = $0 }
+        )
     }
 }
 

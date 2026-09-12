@@ -118,8 +118,18 @@ enum HelpContent {
                     term: "Window rows",
                     detail: """
                     One row per window. You can edit the title SnapDesk matches on, the display, \
-                    the position and size, whether it is minimized or zoomed, and command-line \
-                    arguments to pass when the app is launched.
+                    the position and size, whether it is minimized, zoomed or fullscreen, and \
+                    command-line arguments to pass when the app is launched.
+                    """
+                ),
+                Entry(
+                    term: "Fullscreen",
+                    detail: """
+                    Not the same thing as Zoomed. Zoomed fills the screen; fullscreen hides the \
+                    menu bar and gives the window a Space of its own. macOS decides which Space \
+                    that is, and SnapDesk cannot ask for a particular one. Some windows have no \
+                    fullscreen state at all — a fixed-size one refuses it — and those come back \
+                    on their saved frame instead.
                     """
                 ),
                 Entry(term: "Remove", detail: "Drops a window from the workspace. The real window is untouched."),

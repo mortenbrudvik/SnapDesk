@@ -270,6 +270,56 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertEqual(doc.windows.map(\.minimized), [false])
     }
 
+    /// The contrast with the test above is the point. Zoom is *inferred* from the frame, because
+    /// macOS vends no attribute for it; fullscreen is a real attribute and is read. So a window
+    /// can be fullscreen while its recorded frame is nothing like the visible frame, and this is
+    /// the case that would be wrong if fullscreen were inferred the way zoom has to be.
+    func testFullscreenIsReadRatherThanInferredFromTheFrame() {
+        let full = snapshot(
+            cgWindowID: 10,
+            title: "Docs",
+            cocoaFrame: CGRect(x: 40, y: 40, width: 400, height: 300),
+            fullscreen: true
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [full]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.map(\.fullscreen), [true])
+        XCTAssertEqual(doc.windows.map(\.zoomed), [false], "a small frame is not zoomed, fullscreen or not")
+    }
+
+    /// A read that failed stays nil rather than collapsing to false — the rule every persisted
+    /// state here follows. Saved as `false`, a window whose fullscreen state was never actually
+    /// read would be dragged out of fullscreen by every later restore.
+    ///
+    /// Unlike the frame and the minimized state, an unreadable fullscreen does not disqualify the
+    /// window: nil is a value this field is allowed to hold, meaning "not recorded".
+    func testAFullscreenStateThatCouldNotBeReadIsSavedAsNilRatherThanFalse() {
+        let unknown = snapshot(
+            cgWindowID: 10,
+            title: "Docs",
+            cocoaFrame: CGRect(x: 40, y: 40, width: 400, height: 300),
+            fullscreen: nil
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [unknown]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.count, 1, "an unreadable fullscreen does not disqualify the window")
+        XCTAssertNil(doc.windows[0].fullscreen)
+    }
+
     // MARK: What could not be read
 
     /// The failure this whole report exists for: an app that is busy when the hotkey fires does
@@ -447,7 +497,8 @@ final class CaptureServiceTests: XCTestCase {
         title: String,
         subrole: String? = nil,
         cocoaFrame: CGRect?,
-        minimized: Bool? = false
+        minimized: Bool? = false,
+        fullscreen: Bool? = false
     ) -> AXWindowSnapshot {
         AXWindowSnapshot(
             cgWindowID: cgWindowID,
@@ -455,6 +506,7 @@ final class CaptureServiceTests: XCTestCase {
             subrole: subrole,
             cocoaFrame: cocoaFrame,
             minimized: minimized,
+            fullscreen: fullscreen,
             hasTitleBarButtons: true
         )
     }

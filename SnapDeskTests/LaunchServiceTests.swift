@@ -1534,6 +1534,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1553,6 +1554,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1582,6 +1584,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1610,6 +1613,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1639,6 +1643,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1664,6 +1669,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1686,6 +1692,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1707,6 +1714,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1736,6 +1744,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1758,6 +1767,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1782,6 +1792,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1807,6 +1818,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1831,6 +1843,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1851,6 +1864,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: ScriptedClock()
         )
@@ -1869,6 +1883,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: ScriptedClock()
         )
@@ -1891,6 +1906,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: window.zoomTarget,
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1913,6 +1929,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: saved,
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1939,6 +1956,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: standard,
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1949,6 +1967,135 @@ final class LaunchServiceTests: XCTestCase {
         // 2 attempts x 500ms of 50ms polls. Deliberately far short of the deminiaturize bound: a
         // zoom animates in a quarter second and is not a precondition for anything after it.
         XCTAssertEqual(clock.sleeps, 20)
+    }
+
+    // MARK: Fullscreen
+
+    /// Entering fullscreen is the last thing the placement does, and the order is not cosmetic:
+    /// the transition replaces the window's frame outright, so a frame written afterwards is
+    /// thrown away by the window server.
+    func testASlotSavedFullscreenEntersFullscreenAfterTheFrameIsWritten() async {
+        let window = FakeAXWindow()
+        let clock = ScriptedClock()
+        clock.onSleep = { poll in if poll == 2 { window.fullscreenState = true } }
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: true,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.frameWrites, [frame])
+        XCTAssertEqual(window.fullscreenWrites, 1)
+        XCTAssertEqual(
+            window.fullscreenAtFrameWrite,
+            [false],
+            "the frame has to be written while the window is still out of fullscreen"
+        )
+    }
+
+    /// Leaving fullscreen is the opposite half, and it is a *precondition* rather than a finishing
+    /// touch: a fullscreen window swallows a frame write and answers `.success` for it, exactly as
+    /// a minimized one does. So it happens before the frame, not after.
+    func testASlotSavedNotFullscreenLeavesFullscreenBeforeTheFrameIsWritten() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        let clock = ScriptedClock()
+        clock.onSleep = { poll in if poll == 2 { window.fullscreenState = false } }
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.frameWrites, [frame])
+        XCTAssertEqual(window.fullscreenWrites, 1)
+        XCTAssertEqual(
+            window.fullscreenAtFrameWrite,
+            [false],
+            "the window has to be out of fullscreen before its frame is written"
+        )
+    }
+
+    /// A window that will not come out of fullscreen is the same failure as one that will not come
+    /// out of the Dock: nothing written after it lands, so the frame write is not even attempted
+    /// and the slot is reported rather than claimed.
+    func testAWindowThatWillNotLeaveFullscreenIsReportedRatherThanWrittenTo() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
+            minimized: false,
+            zoomed: false,
+            fullscreen: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertTrue(window.frameWrites.isEmpty, "a fullscreen window swallows the frame write")
+        XCTAssertEqual(clock.sleeps, 40, "bounded: one wedged window cannot stall the restore")
+    }
+
+    /// A window that refuses to *enter* fullscreen is a different matter: it is already on its
+    /// saved frame, so this is the partial success a refused zoom reports, not a failure.
+    /// Measured refusing: Activity Monitor and System Settings.
+    func testAFullscreenThatNeverTakesIsReportedAsStateNotRestored() async {
+        let window = FakeAXWindow()
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: true,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .stateNotRestored)
+        XCTAssertEqual(window.frame, frame, "the frame was applied even though the fullscreen was not")
+        // 2s of 50ms polls — the deminiaturize bound rather than the zoom one, because a measured
+        // fullscreen transition takes over a second where a zoom animates in a quarter of one.
+        XCTAssertEqual(clock.sleeps, 40, "bounded, like every other state wait here")
+    }
+
+    /// A workspace written before the field existed says nothing about fullscreen, and nil is not
+    /// false: such a slot must neither push a window into fullscreen nor drag one out. This is
+    /// exactly the behaviour every build before this one had.
+    func testANilFullscreenLeavesTheWindowAlone() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        let clock = ScriptedClock()
+
+        _ = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+            minimized: false,
+            zoomed: false,
+            fullscreen: nil,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(window.fullscreenState, true)
+        XCTAssertEqual(window.fullscreenWrites, 0)
+        XCTAssertEqual(clock.sleeps, 0)
     }
 
     func testEmptyDocumentReturnsEmptyWithoutLaunching() async {
@@ -2290,6 +2437,7 @@ private final class FakePlacer: WindowPlacing {
         var cocoaFrame: CGRect
         var minimized: Bool
         var zoomed: Bool
+        var fullscreen: Bool?
     }
 
     var placements: [Placement] = []
@@ -2303,10 +2451,22 @@ private final class FakePlacer: WindowPlacing {
         self.refuseIDs = refuseIDs
     }
 
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome {
+    func place(
+        _ window: MatchableWindow,
+        cocoaFrame: CGRect,
+        minimized: Bool,
+        zoomed: Bool,
+        fullscreen: Bool?
+    ) async -> PlacementOutcome {
         onPlace(window)
         placements.append(
-            Placement(window: window, cocoaFrame: cocoaFrame, minimized: minimized, zoomed: zoomed)
+            Placement(
+                window: window,
+                cocoaFrame: cocoaFrame,
+                minimized: minimized,
+                zoomed: zoomed,
+                fullscreen: fullscreen
+            )
         )
         if refuseIDs.contains(window.id) { return .refused }
         return outcomes[window.id] ?? .placed
@@ -2360,9 +2520,10 @@ private final class FakeAXWindow: PlaceableWindow {
         set { minimizedState = newValue }
     }
 
-    init(isMinimized: Bool = false, isZoomed: Bool = false) {
+    init(isMinimized: Bool = false, isZoomed: Bool = false, isFullscreen: Bool? = false) {
         self.minimizedState = isMinimized
         self.frame = isZoomed ? zoomTarget : userFrame
+        self.fullscreenState = isFullscreen
     }
 
     /// Mirrors `AXWindow.unminimize`: the write is skipped on a confirmed false and on nothing
@@ -2402,6 +2563,27 @@ private final class FakeAXWindow: PlaceableWindow {
         return .success
     }
 
+    /// A real attribute, unlike zoom, so the fake stores it rather than deriving it from the
+    /// frame. Nil is the read that failed.
+    var fullscreenState: Bool?
+    /// What the fullscreen write answers, and separately, whether it ever takes: Activity Monitor
+    /// and System Settings accept the write and stay where they are.
+    var fullscreenResult: AXError = .success
+    private(set) var fullscreenWrites = 0
+    /// Whether the window was fullscreen as each frame write landed. It matters in both
+    /// directions: a fullscreen window swallows the write, and entering fullscreen afterwards
+    /// throws the frame away.
+    private(set) var fullscreenAtFrameWrite: [Bool] = []
+
+    /// Accepts the write without flipping the state, for the same reason `setMinimized` does —
+    /// and measured on a real window, which is stronger than the analogy: the attribute flips when
+    /// the transition starts, and a write that lands before it finishes is accepted and then does
+    /// nothing at all.
+    func setFullScreen(_ fullscreen: Bool) -> AXError {
+        fullscreenWrites += 1
+        return fullscreenResult
+    }
+
     /// What the frame write answers. The whole `stateUnknown` design rests on the frame write
     /// being the one step that can still report on a window nothing else could read, so a refusal
     /// there has to be exercised.
@@ -2410,6 +2592,7 @@ private final class FakeAXWindow: PlaceableWindow {
     func setCocoaFrame(_ frame: CGRect) -> AXError {
         frameWrites.append(frame)
         minimizedAtFrameWrite.append(isMinimized)
+        fullscreenAtFrameWrite.append(fullscreenState ?? false)
         guard frameResult == .success else { return frameResult }
         self.frame = frame
         return .success

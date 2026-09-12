@@ -170,7 +170,13 @@ protocol WindowCatalog {
 /// it writes the frame; see `WindowPlacement.apply`.
 @MainActor
 protocol WindowPlacing {
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome
+    func place(
+        _ window: MatchableWindow,
+        cocoaFrame: CGRect,
+        minimized: Bool,
+        zoomed: Bool,
+        fullscreen: Bool?
+    ) async -> PlacementOutcome
 }
 
 /// The two things a bounded wait needs from time: to let some pass, and to know how much has.
@@ -650,7 +656,8 @@ final class LaunchService {
                     match,
                     cocoaFrame: target.frame,
                     minimized: slot.minimized,
-                    zoomed: slot.zoomed
+                    zoomed: slot.zoomed,
+                    fullscreen: slot.fullscreen
                 )
                 if let failure = outcome.slotFailure {
                     // A placement torn down by a Cancel refuses like any other. The user stopping
@@ -747,7 +754,8 @@ final class LaunchService {
                     own,
                     cocoaFrame: target.frame,
                     minimized: slot.minimized,
-                    zoomed: slot.zoomed
+                    zoomed: slot.zoomed,
+                    fullscreen: slot.fullscreen
                 )
                 guard outcome == .placed else {
                     Log.launch.error(
@@ -1104,6 +1112,10 @@ protocol PlaceableWindow {
     func setMinimized(_ minimized: Bool) -> AXError
     func setZoomed(_ zoomed: Bool) -> AXError
     func setCocoaFrame(_ frame: CGRect) -> AXError
+    /// Nil for a read that failed. Unlike zoom there is a real attribute behind this, so the
+    /// placement reads it instead of inferring it from the frame; see `AXWindow.fullscreenState`.
+    var fullscreenState: Bool? { get }
+    func setFullScreen(_ fullscreen: Bool) -> AXError
 }
 
 extension AXWindow: PlaceableWindow {}
@@ -1123,6 +1135,10 @@ enum WindowPlacement {
     /// instead. Reusing the two-second bound would cost that twice per such window.
     static let zoomTimeout: Duration = .milliseconds(500)
 
+    /// 2s, matching the deminiaturize bound rather than the zoom one. Measured on a real window:
+    /// a fullscreen transition runs well over a second, where a zoom animates in a quarter of one.
+    static let fullScreenTimeout: Duration = .seconds(2)
+
     /// Short enough that a window that comes straight back is not visibly held up, long enough not
     /// to hammer the AX server of an app that is mid-animation.
     static let statePollInterval: Duration = .milliseconds(50)
@@ -1132,6 +1148,7 @@ enum WindowPlacement {
         cocoaFrame: CGRect,
         minimized: Bool,
         zoomed: Bool,
+        fullscreen: Bool?,
         bundleIdentifier id: String,
         clock: any RestoreClock
     ) async -> PlacementOutcome {
@@ -1200,6 +1217,26 @@ enum WindowPlacement {
             }
         }
 
+        // Leaving fullscreen is a precondition and not a finishing touch: a fullscreen window
+        // swallows a frame write and answers `.success` for it, exactly as a minimized one does.
+        // Entering fullscreen is the opposite case — the transition replaces the frame outright —
+        // so that half waits until after the frame write, at the bottom of this function.
+        //
+        // A nil changes nothing in either direction: it means the workspace was written before
+        // this field existed and says nothing about fullscreen, which is precisely what every
+        // build before this one did with such a file.
+        if fullscreen == false, ax.fullscreenState == true {
+            guard await ensureFullScreen(ax, wanted: false, id: id, clock: clock) else {
+                Log.ax.error(
+                    """
+                    a window of \(id, privacy: .public) would not leave fullscreen; its frame was \
+                    left alone rather than written to a window that swallows it
+                    """
+                )
+                return .refused
+            }
+        }
+
         // Un-zooming first is only a head start for the frame write, so a refusal must not abort
         // the placement: `isZoomed` is inferred from the frame, so a non-resizable window sitting
         // at the visible frame reads as zoomed, has no zoom button to press, and would lose a move
@@ -1226,6 +1263,9 @@ enum WindowPlacement {
         var restoredState = true
         if zoomed {
             restoredState = await ensureZoomed(ax, id: id, clock: clock) && restoredState
+        }
+        if fullscreen == true {
+            restoredState = await ensureFullScreen(ax, wanted: true, id: id, clock: clock) && restoredState
         }
         if minimized {
             restoredState = await ensureMinimized(ax, id: id, clock: clock) && restoredState
@@ -1278,6 +1318,37 @@ enum WindowPlacement {
         return false
     }
 
+    /// Writes the attribute only when the state does not already answer the request, then reads
+    /// it back, because the write being accepted is not the transition happening. Measured on a
+    /// real window: the attribute flips as the transition *starts*, and a write that lands before
+    /// it finishes is accepted, reports `.success`, and then does nothing at all.
+    ///
+    /// One attempt rather than the two `ensureZoomed` makes. Zoom needs a second press because the
+    /// press is a toggle AppKit aims itself; this is a plain attribute write, so a second one
+    /// would only re-send what the window already refused.
+    private static func ensureFullScreen(
+        _ ax: some PlaceableWindow,
+        wanted: Bool,
+        id: String,
+        clock: any RestoreClock
+    ) async -> Bool {
+        if ax.fullscreenState == wanted { return true }
+        let direction = wanted ? "enter" : "leave"
+        guard succeeded(ax.setFullScreen(wanted), bundleIdentifier: id, step: "\(direction) fullscreen") else {
+            return false
+        }
+        if await settled(clock: clock, timeout: fullScreenTimeout, until: { ax.fullscreenState == wanted }) {
+            return true
+        }
+        Log.ax.error(
+            """
+            a window of \(id, privacy: .public) did not \(direction, privacy: .public) fullscreen; \
+            the write was accepted and the window stayed where it was
+            """
+        )
+        return false
+    }
+
     /// Polls a fixed number of times rather than against a wall clock so the wait is the same
     /// length whichever `Clock` is driving it.
     private static func settled(
@@ -1311,7 +1382,13 @@ enum WindowPlacement {
 struct AXWindowPlacer: WindowPlacing {
     var clock: any RestoreClock = TaskClock()
 
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome {
+    func place(
+        _ window: MatchableWindow,
+        cocoaFrame: CGRect,
+        minimized: Bool,
+        zoomed: Bool,
+        fullscreen: Bool?
+    ) async -> PlacementOutcome {
         let ax: AXWindow
         switch axWindow(matching: window) {
         case .found(let found):
@@ -1340,6 +1417,7 @@ struct AXWindowPlacer: WindowPlacing {
             cocoaFrame: cocoaFrame,
             minimized: minimized,
             zoomed: zoomed,
+            fullscreen: fullscreen,
             bundleIdentifier: window.bundleIdentifier,
             clock: clock
         )

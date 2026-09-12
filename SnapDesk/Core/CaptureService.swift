@@ -40,6 +40,9 @@ struct AXWindowSnapshot: Equatable {
     /// Nil when the read failed, as opposed to false for a window that is simply up; see
     /// `AXWindow.minimizedState`.
     var minimized: Bool?
+    /// True fullscreen, read from a real attribute rather than inferred the way zoom must be.
+    /// Nil for a read that failed; see `AXWindow.fullscreenState`.
+    var fullscreen: Bool?
     /// See `CaptureFilter.isChromelessStandardWindow`.
     var hasTitleBarButtons: Bool
 }
@@ -243,6 +246,11 @@ struct CaptureService {
                 // Inferred against the display list this capture records, from the very frame it
                 // saves beside it, so the two cannot disagree.
                 zoomed: AXWindow.isZoomed(frame: item.frame, on: liveDisplays),
+                // Read rather than inferred, which is the whole difference from `zoomed` above.
+                // An unreadable state stays nil: saved as `false` it would drag the window out of
+                // fullscreen on every later restore. Unlike the frame and the minimized state, it
+                // does not disqualify the window — nil is a value this field is allowed to hold.
+                fullscreen: item.window.fullscreen,
                 arguments: ""
             )
         }
@@ -325,6 +333,7 @@ struct AXWindowCapturer: AXCapturing {
                 subrole: window.subrole,
                 cocoaFrame: window.cocoaFrame,
                 minimized: window.minimizedState,
+                fullscreen: window.fullscreenState,
                 hasTitleBarButtons: window.hasTitleBarButtons
             )
         }

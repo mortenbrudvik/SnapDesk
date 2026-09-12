@@ -357,6 +357,27 @@ final class EditorWindowTests: XCTestCase {
 
     /// The row's W and H fields commit through this binding. They used to take a 0 or a negative
     /// side straight into the document, which then could not be saved or relaunched.
+    /// The stored field is `Bool?` where the toggle is `Bool`, and the missing third state is the
+    /// whole difficulty: nil means the workspace was written before fullscreen was recorded, which
+    /// restore reads as "leave the window alone". A two-state toggle has nowhere to show that, so
+    /// it reads nil as off — and a write always records an explicit value, because the user
+    /// reaching for the toggle is an intent where an untouched old file is not.
+    func testTheFullscreenToggleReadsNilAsOffAndWritesAnExplicitValue() {
+        var stored: Bool?
+        let binding = WindowFullscreenField.binding(
+            Binding(get: { stored }, set: { stored = $0 })
+        )
+
+        XCTAssertFalse(binding.wrappedValue, "nil is shown as off")
+        XCTAssertNil(stored, "showing the row must not record a value")
+
+        binding.wrappedValue = true
+        XCTAssertEqual(stored, true)
+
+        binding.wrappedValue = false
+        XCTAssertEqual(stored, false, "switching it off records false rather than reverting to nil")
+    }
+
     func testTheWindowSizeFieldClampsANonPositiveSideBeforeItReachesTheDocument() {
         let controller = makeController(prompt: FakePrompt())
         controller.open(
