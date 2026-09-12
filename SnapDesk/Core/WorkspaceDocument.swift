@@ -59,7 +59,43 @@ struct SavedWindow: Codable, Equatable, Sendable {
     /// alone rather than dragging it out. Unlike zoom, this is read from a real attribute; see
     /// `AXWindow.fullscreenState`.
     var fullscreen: Bool?
+    /// The document, page or folder the window had open, when the app vends one.
+    ///
+    /// This is what makes a cold start reproduce every window rather than one: arguments reach a
+    /// *new* instance only, so a running app ignores them, while opening a document works either
+    /// way. Nil where the app vends nothing — Safari and Finder vend nothing — and in every file
+    /// written before the field existed.
+    ///
+    /// Only a value `WorkspaceDocumentReference.isUsable` accepts is ever stored; see there for
+    /// why the raw attribute cannot be trusted.
+    var document: String?
     var arguments: String
+}
+
+/// What a saved document reference is allowed to be.
+///
+/// `AXDocument` is not a URL field. Measured, it holds a page URL in Brave, a working directory in
+/// Terminal and a file path in TextEdit — but on other apps it holds a string that is not a
+/// location at all. Restore hands this value to LaunchServices, so anything that cannot be opened
+/// is refused here rather than guessed at: a bare word is a title that happened to land in the
+/// attribute, and a scheme like `javascript:` is not something to hand to `NSWorkspace`.
+enum WorkspaceDocumentReference {
+    /// Deliberately short. `http` and `https` are pages; `file` is everything on disk. A scheme
+    /// not on this list is refused rather than passed through, because the point of the check is
+    /// to bound what a workspace file can make the app open.
+    static let allowedSchemes: Set<String> = ["http", "https", "file"]
+
+    static func isUsable(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        // An absolute path, which is what Terminal and TextEdit actually vend, is unambiguous and
+        // needs no scheme.
+        if trimmed.hasPrefix("/") { return true }
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return false }
+        guard allowedSchemes.contains(scheme) else { return false }
+        // A scheme on its own is not a location: "https:" parses cleanly and opens nothing.
+        return !(url.host ?? "").isEmpty || !url.path.isEmpty
+    }
 }
 
 /// Version of the on-disk schema. A distinct type is what keeps callers from stamping a document
@@ -323,6 +359,9 @@ struct WorkspaceDocument: Codable, Equatable, Sendable {
             }
             guard window.displayId.isEmpty || displayIds.contains(window.displayId) else {
                 throw reject("window \"\(window.name)\" names display \"\(window.displayId)\", which the file does not describe")
+            }
+            if let document = window.document, !WorkspaceDocumentReference.isUsable(document) {
+                throw reject("window \"\(window.name)\" has a document that cannot be opened: \"\(document)\"")
             }
         }
     }

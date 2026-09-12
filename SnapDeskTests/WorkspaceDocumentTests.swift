@@ -98,6 +98,57 @@ final class WorkspaceDocumentTests: XCTestCase {
         XCTAssertFalse(text.contains("fullscreen"))
     }
 
+    /// The document a window had open, so a cold start can reproduce it. Optional on the same
+    /// terms as `fullscreen`: absent from every file written before it existed, and absent from
+    /// the encoding when it is nil.
+    func testDocumentIsOptionalAndRoundTrips() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        XCTAssertNil(document.windows[0].document)
+
+        document.windows[0].document = "https://github.com/mortenbrudvik/SnapDesk"
+        XCTAssertEqual(
+            try WorkspaceDocument.decode(document.encoded()).windows[0].document,
+            "https://github.com/mortenbrudvik/SnapDesk"
+        )
+    }
+
+    /// `AXDocument` can hold a string that is not a URL at all — measured on three apps, which
+    /// vend something closer to a window title. The restore path hands this value to
+    /// LaunchServices, so a value that cannot be opened must never reach a saved workspace.
+    func testADocumentThatIsNotAUsableURLIsRejected() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+
+        for bad in ["", "   ", "not a url", "javascript:alert(1)", "Untitled 3", "mailto:a@b.c"] {
+            document.windows[0].document = bad
+            XCTAssertThrowsError(try document.validate(), "accepted \"\(bad)\"")
+        }
+
+        // An absolute path is accepted because it is what Terminal and TextEdit actually vend.
+        for good in [
+            "https://example.com",
+            "http://example.com/a/b?c=d",
+            "file:///Users/me/notes.txt",
+            "/Users/me/notes.txt",
+        ] {
+            document.windows[0].document = good
+            XCTAssertNoThrow(try document.validate(), "rejected \"\(good)\"")
+        }
+    }
+
+    /// A rejection has to name the window, like every other rule here: a file with twenty slots
+    /// and a message that says only "a document cannot be opened" is not actionable.
+    func testARejectedDocumentNamesTheWindow() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        document.windows[0].document = "not a url"
+
+        XCTAssertThrowsError(try document.validate()) { error in
+            XCTAssertTrue(
+                "\(error)".contains("Safari"),
+                "the message should name the window, but was: \(error)"
+            )
+        }
+    }
+
     func testEncodedIsPrettyAndSortedKeys() throws {
         let doc = try WorkspaceDocument.decode(Data(specJSON.utf8))
         let encoded = try doc.encoded()
