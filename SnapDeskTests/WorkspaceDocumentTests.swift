@@ -75,6 +75,29 @@ final class WorkspaceDocumentTests: XCTestCase {
         XCTAssertEqual(roundTripped, original)
     }
 
+    /// The field is optional so that every file written before it existed still opens, and a file
+    /// written now still opens in a build that has never heard of it — Swift's synthesised Codable
+    /// omits a nil and ignores a key it does not know.
+    func testFullscreenIsOptionalInBothDirections() throws {
+        let old = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        XCTAssertNil(old.windows[0].fullscreen, "a file without the key must decode")
+
+        var updated = old
+        updated.windows[0].fullscreen = true
+        let text = try XCTUnwrap(String(data: updated.encoded(), encoding: .utf8))
+        XCTAssertTrue(text.contains("\"fullscreen\" : true"), "unexpected encoding in:\n\(text)")
+
+        XCTAssertEqual(try WorkspaceDocument.decode(updated.encoded()).windows[0].fullscreen, true)
+    }
+
+    /// A nil is absent rather than null, so a workspace that records nothing new stays
+    /// byte-identical to what the previous build wrote.
+    func testAWindowWithNoFullscreenStateWritesNoKey() throws {
+        let document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        let text = try XCTUnwrap(String(data: document.encoded(), encoding: .utf8))
+        XCTAssertFalse(text.contains("fullscreen"))
+    }
+
     func testEncodedIsPrettyAndSortedKeys() throws {
         let doc = try WorkspaceDocument.decode(Data(specJSON.utf8))
         let encoded = try doc.encoded()

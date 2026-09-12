@@ -52,6 +52,13 @@ struct SavedWindow: Codable, Equatable, Sendable {
     var height: Double
     var minimized: Bool
     var zoomed: Bool
+    /// Whether the window was in true fullscreen — the green-button state, which is not `zoomed`.
+    ///
+    /// Nil in every file written before this field existed, and that is not the same as false: a
+    /// window recorded by an older build says nothing about fullscreen, so restore leaves it
+    /// alone rather than dragging it out. Unlike zoom, this is read from a real attribute; see
+    /// `AXWindow.fullscreenState`.
+    var fullscreen: Bool?
     var arguments: String
 }
 
