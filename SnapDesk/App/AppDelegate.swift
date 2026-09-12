@@ -128,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     struct Dependencies {
         var recents: RecentsStore
         var workspaceShortcuts: WorkspaceShortcuts
+        /// When each workspace was last restored. Kept out of the document on purpose; see
+        /// `WorkspaceLibrary`.
+        var library: WorkspaceLibrary
         /// The workspace to restore when SnapDesk starts, if the user has chosen one.
         ///
         /// Deliberately "when SnapDesk starts" rather than "at login": the app cannot reliably
@@ -148,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             return Dependencies(
                 recents: RecentsStore(),
                 workspaceShortcuts: WorkspaceShortcuts(),
+                library: WorkspaceLibrary(),
                 startupWorkspace: { AppSettings.shared.startupWorkspace },
                 capture: { captureService.capture() },
                 restorer: LaunchService(),
@@ -312,6 +316,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         do {
             let workspace = try WorkspaceDocument.load(from: url).validated()
             recents.add(url)
+            // After the load, so a workspace that could not be opened is not recorded as having
+            // been restored — the library would otherwise sort a broken file to the top.
+            dependencies.library.recordLaunch(of: url)
             startLaunch(workspace)
         } catch let error as WorkspaceDocumentError {
             show(title: WorkspaceOpener.openFailureTitle(for: url), detail: WorkspaceOpener.detail(for: error))

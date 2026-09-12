@@ -23,6 +23,7 @@
 		388230E4B821534324120597 /* RecentsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D4DDB4030076229862DB55E /* RecentsStore.swift */; };
 		3A17644FBB1009090D21730E /* RecaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */; };
 		43268BC857289061F6A813D4 /* CaptureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCADD3839C141EB57C3BDEDE /* CaptureCandidate.swift */; };
+		44E8ECC1EF4ACCB11C29CBF0 /* WorkspaceLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = F450DAF9EA9D1F8105B1EC45 /* WorkspaceLibrary.swift */; };
 		45043F50C53214E121AEAC81 /* AboutPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D620CE508F380264073CA449 /* AboutPanel.swift */; };
 		4839749F4EEA849828414491 /* WindowMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0B136E3CF45F5ABB30659B /* WindowMatcher.swift */; };
 		48D520D461CD17C74B3F2992 /* ScreenGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803DAAD29A22C5D4DF2DC92D /* ScreenGeometryTests.swift */; };
@@ -62,6 +63,7 @@
 		C7B1BBC95E3A74D583916C73 /* SettingsWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD8F38608F6993AAE5523A88 /* SettingsWindowTests.swift */; };
 		C9C2010BA80C2354E2646388 /* HotkeyCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933369887FC6416E7E3AE65D /* HotkeyCenter.swift */; };
 		D331C1F89C88F294FE881C65 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CD9C915C37162DB14F88C8 /* EditorView.swift */; };
+		D3C85538FBD9ACEC90AB58AF /* WorkspaceLibraryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26FF8BDDAEB55B2E74307169 /* WorkspaceLibraryTests.swift */; };
 		D6210A8B16110C59FFA2BC42 /* DisplayMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */; };
 		D8223C8C01B548C04C553F03 /* WindowMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4582005BA218583F382BBB25 /* WindowMatcherTests.swift */; };
 		DC21F9EC9A8C28F3EA323490 /* EditorSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03E41502E7E35574CFC668CA /* EditorSessionTests.swift */; };
@@ -99,6 +101,7 @@
 		183645B2A58A9D2406843FFE /* SnapDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapDeskApp.swift; sourceTree = "<group>"; };
 		2249774EB71F907BEE238BEF /* DocumentOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentOpening.swift; sourceTree = "<group>"; };
 		23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchableWindow.swift; sourceTree = "<group>"; };
+		26FF8BDDAEB55B2E74307169 /* WorkspaceLibraryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLibraryTests.swift; sourceTree = "<group>"; };
 		2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrdering.swift; sourceTree = "<group>"; };
 		353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecaptureTests.swift; sourceTree = "<group>"; };
 		394A892C76175ABBFED05D4B /* DisplayMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayMapTests.swift; sourceTree = "<group>"; };
@@ -159,6 +162,7 @@
 		E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchPlannerTests.swift; sourceTree = "<group>"; };
 		F1CE264A0ADCD35F7515F7E5 /* CaptureServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureServiceTests.swift; sourceTree = "<group>"; };
 		F23DC0F0FEA8E928214B0F80 /* WorkspaceDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceDocument.swift; sourceTree = "<group>"; };
+		F450DAF9EA9D1F8105B1EC45 /* WorkspaceLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLibrary.swift; sourceTree = "<group>"; };
 		F7CD9C62AD1D9C0ACA3C4020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FD8F38608F6993AAE5523A88 /* SettingsWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowTests.swift; sourceTree = "<group>"; };
 		FE67075EE5D3CB2A698B2939 /* AccessibilityAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAuthTests.swift; sourceTree = "<group>"; };
@@ -210,6 +214,7 @@
 				4582005BA218583F382BBB25 /* WindowMatcherTests.swift */,
 				B64F843425FF8F69796BA154 /* WorkspaceDocumentTests.swift */,
 				B10CC60B27DF75C059203EA4 /* WorkspaceFileTypeTests.swift */,
+				26FF8BDDAEB55B2E74307169 /* WorkspaceLibraryTests.swift */,
 			);
 			path = SnapDeskTests;
 			sourceTree = "<group>";
@@ -222,6 +227,7 @@
 				CD2C46611975D5689D5E9053 /* Log.swift */,
 				5D4DDB4030076229862DB55E /* RecentsStore.swift */,
 				13073130F6B7298047269B39 /* WorkspaceBookmark.swift */,
+				F450DAF9EA9D1F8105B1EC45 /* WorkspaceLibrary.swift */,
 			);
 			path = Support;
 			sourceTree = "<group>";
@@ -462,6 +468,7 @@
 				291A9E4D91DC0429408A12DA /* WorkspaceBookmark.swift in Sources */,
 				A97A788B0CB8775E9F848F41 /* WorkspaceDocument.swift in Sources */,
 				FB8355D5BB066F59398DD08A /* WorkspaceFileType.swift in Sources */,
+				44E8ECC1EF4ACCB11C29CBF0 /* WorkspaceLibrary.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -497,6 +504,7 @@
 				D8223C8C01B548C04C553F03 /* WindowMatcherTests.swift in Sources */,
 				387B320F676723428A41B6D6 /* WorkspaceDocumentTests.swift in Sources */,
 				E48598CA1CCCFC30C2DD83F3 /* WorkspaceFileTypeTests.swift in Sources */,
+				D3C85538FBD9ACEC90AB58AF /* WorkspaceLibraryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

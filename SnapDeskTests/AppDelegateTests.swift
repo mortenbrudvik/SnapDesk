@@ -69,6 +69,7 @@ final class AppDelegateTests: XCTestCase {
         let recents: RecentsStore
         let recorder: Recorder
         let shortcuts: WorkspaceShortcuts
+        let library: WorkspaceLibrary
     }
 
     private func makeFixture(trusted: Bool = true, startupWorkspace: URL? = nil) -> Fixture {
@@ -79,11 +80,13 @@ final class AppDelegateTests: XCTestCase {
         let recents = RecentsStore(defaults: scratchDefaults())
         // Its own throwaway suite: under TEST_HOST, `.standard` is the shipping app's own domain.
         let shortcuts = WorkspaceShortcuts(defaults: scratchDefaults())
+        let library = WorkspaceLibrary(defaults: scratchDefaults())
         let capture = CaptureOutcome(document: makeDocument(name: "Captured"), report: .clean)
         let delegate = AppDelegate(
             dependencies: AppDelegate.Dependencies(
                 recents: recents,
                 workspaceShortcuts: shortcuts,
+                library: library,
                 startupWorkspace: { startupWorkspace },
                 capture: { capture },
                 restorer: restorer,
@@ -100,7 +103,8 @@ final class AppDelegateTests: XCTestCase {
             hud: hud,
             recents: recents,
             recorder: recorder,
-            shortcuts: shortcuts
+            shortcuts: shortcuts,
+            library: library
         )
     }
 
@@ -299,6 +303,32 @@ final class AppDelegateTests: XCTestCase {
             await Task.yield()
         }
         XCTAssertTrue(condition(), "condition never held", file: file, line: line)
+    }
+
+    // MARK: The library
+
+    /// Restoring records when, so the library can order by what the user actually uses. Where
+    /// that date is *not* written — the workspace file — is pinned by WorkspaceLibraryTests.
+    func testRestoringAWorkspaceRecordsWhenItWasLaunched() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture()
+
+        fixture.delegate.launch(url: url)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertNotNil(fixture.library.lastLaunched(url))
+    }
+
+    /// A workspace that failed to open was never restored, so it gets no date. Otherwise the
+    /// library would sort a file the user cannot even open to the top.
+    func testAWorkspaceThatFailsToOpenIsNotRecordedAsLaunched() async throws {
+        let url = try writeData(Data("not json".utf8), named: "broken")
+        let fixture = makeFixture()
+
+        fixture.delegate.launch(url: url)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertNil(fixture.library.lastLaunched(url))
     }
 
     // MARK: The startup workspace
