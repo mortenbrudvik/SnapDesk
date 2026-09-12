@@ -441,6 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         if editorWindow == nil {
             editorWindow = EditorWindowController(
                 recents: recents,
+                library: dependencies.library,
                 capture: { [weak self] in
                     guard let self else { return nil }
                     guard self.dependencies.accessibilityTrusted() else {
@@ -451,6 +452,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
                 },
                 launch: { [weak self] document in
                     self?.launch(document: document)
+                },
+                launchFile: { [weak self] url in
+                    self?.launch(url: url)
                 }
             )
         }

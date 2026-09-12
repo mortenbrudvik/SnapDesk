@@ -7,12 +7,25 @@ import Foundation
 /// writes `lastLaunchedTime` into the workspace itself; doing that would mean a restore modifies
 /// the user's document, which dirties version control, fails outright on a read-only file, and
 /// changes a file they did not edit. A workspace is a document, and restoring one is a read.
+/// One row of the workspace list: where it is, what to call it, and when it was last restored.
+/// The name comes from the file name, never from decoding the document — a sidebar showing fifty
+/// workspaces would otherwise parse fifty files to draw itself.
+struct WorkspaceListing: Equatable, Identifiable {
+    var url: URL
+    var name: String
+    var lastLaunched: Date?
+
+    var id: URL { url }
+}
+
 @MainActor
 final class WorkspaceLibrary {
     private enum Key {
         static let bookmarks = "libraryBookmarks"
         static let paths = "libraryPaths"
         static let dates = "libraryDates"
+        static let folderBookmark = "libraryFolderBookmark"
+        static let folderPath = "libraryFolderPath"
     }
 
     /// One remembered workspace: where it is, and when it was last restored.
@@ -24,6 +37,7 @@ final class WorkspaceLibrary {
 
     private let defaults: UserDefaults
     private var entries: [Entry]
+    private var storedFolder: WorkspaceBookmark
 
     /// How many dates are remembered. For tests and for the pruning assertions; the list itself
     /// is not exposed, because a caller wants `lastLaunched` or the merged listing, never this.
@@ -31,6 +45,10 @@ final class WorkspaceLibrary {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        storedFolder = WorkspaceBookmark(
+            path: defaults.string(forKey: Key.folderPath) ?? "",
+            bookmark: defaults.data(forKey: Key.folderBookmark) ?? Data()
+        )
         let loaded = Self.load(from: defaults)
         entries = loaded.entries
         // Pruned or rewritten entries are only corrected in memory until they are written back,
@@ -38,6 +56,80 @@ final class WorkspaceLibrary {
         if loaded.needsRewrite {
             persist()
         }
+    }
+
+    /// A folder the user has nominated as where their workspaces live, or nil.
+    ///
+    /// A plain bookmark rather than a security-scoped one: SnapDesk is not sandboxed — it cannot
+    /// be, because the App Sandbox blocks the Accessibility calls it exists for — so there is no
+    /// scope to reclaim, and a security-scoped bookmark would only add a start/stop dance around
+    /// every read that does nothing here.
+    var folder: URL? {
+        get {
+            var needsRewrite = false
+            guard let resolved = storedFolder.resolve(needsRewrite: &needsRewrite) else { return nil }
+            if needsRewrite {
+                folder = resolved
+            }
+            return resolved
+        }
+        set {
+            storedFolder = newValue.map(WorkspaceBookmark.make(for:)) ?? .none
+            defaults.set(storedFolder.bookmark, forKey: Key.folderBookmark)
+            defaults.set(storedFolder.path, forKey: Key.folderPath)
+        }
+    }
+
+    /// Every workspace worth showing: the nominated folder's contents merged with `recents`,
+    /// ordered for a sidebar.
+    ///
+    /// Most-recently-restored first, because that is what the user reaches for. Everything never
+    /// restored follows in name order — the order `contentsOfDirectory` returns is arbitrary and
+    /// changes, which would make the list shuffle between launches for no reason the user can see.
+    func listing(recents: [URL]) -> [WorkspaceListing] {
+        var seen: Set<String> = []
+        var found: [URL] = []
+        for url in folderWorkspaces() + recents where seen.insert(Self.fileIdentity(url)).inserted {
+            found.append(url)
+        }
+
+        let rows = found.map {
+            WorkspaceListing(
+                url: $0,
+                name: $0.deletingPathExtension().lastPathComponent,
+                lastLaunched: lastLaunched($0)
+            )
+        }
+
+        return rows.sorted { a, b in
+            switch (a.lastLaunched, b.lastLaunched) {
+            case let (x?, y?):
+                return x > y
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+        }
+    }
+
+    /// The folder's own `.snapdesk` files. Not recursive, and never decodes one: the name comes
+    /// from the file name, so listing a folder of fifty workspaces costs one directory read.
+    private func folderWorkspaces() -> [URL] {
+        guard let folder else { return [] }
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        ) else {
+            // A folder that has been deleted, renamed or unmounted. The setting stays — the volume
+            // may come back — and the listing falls back to recents alone.
+            Log.app.notice("the workspace folder could not be read; listing recents only")
+            return []
+        }
+        return contents.filter { $0.pathExtension == WorkspaceFileType.fileExtension }
     }
 
     func lastLaunched(_ url: URL) -> Date? {

@@ -155,6 +155,16 @@ enum HelpContent {
                 ),
                 Entry(term: "Remove", detail: "Drops a window from the workspace. The real window is untouched."),
                 Entry(
+                    term: "The Workspaces list",
+                    detail: """
+                    Down the left. Without a folder chosen it lists what you have opened lately. \
+                    Choose Folder… and it lists every workspace in that folder as well, so you can \
+                    see all of them rather than only the recent ones. Selecting a row opens it for \
+                    editing; Launch on the row restores it. Most recently restored comes first, \
+                    and the rest follow by name.
+                    """
+                ),
+                Entry(
                     term: "Capture, in the editor",
                     detail: """
                     Re-reads the desk and merges it into the workspace you are editing, keeping the \

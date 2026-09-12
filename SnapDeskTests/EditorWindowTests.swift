@@ -673,12 +673,17 @@ final class EditorWindowTests: XCTestCase {
     private func makeController(
         prompt: FakePrompt,
         capture: @escaping () -> CaptureOutcome? = { nil },
-        beep: @escaping @MainActor () -> Void = {}
+        beep: @escaping @MainActor () -> Void = {},
+        recents: RecentsStore? = nil,
+        library: WorkspaceLibrary? = nil,
+        launchFile: @escaping (URL) -> Void = { _ in }
     ) -> EditorWindowController {
         let controller = EditorWindowController(
-            recents: RecentsStore(defaults: scratchDefaults()),
+            recents: recents ?? RecentsStore(defaults: scratchDefaults()),
+            library: library ?? WorkspaceLibrary(defaults: scratchDefaults()),
             capture: capture,
             launch: { _ in },
+            launchFile: launchFile,
             prompt: prompt,
             beep: beep
         )
@@ -744,6 +749,74 @@ final class EditorWindowTests: XCTestCase {
             zoomed: false,
             arguments: ""
         )
+    }
+
+    // MARK: The workspace library
+
+    /// With a folder nominated the sidebar shows every workspace in it, not only the ones the
+    /// user has opened lately — which is the whole difference between a recents list and a
+    /// library.
+    func testTheSidebarListsTheNominatedFolderAlongsideRecents() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snapdesk-editor-library-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        for name in ["Coding", "Writing"] {
+            try Data("{}".utf8).write(to: folder.appendingPathComponent("\(name).snapdesk"))
+        }
+
+        let recentURL = temporaryWorkspaceURL()
+        try makeDocument(name: "Elsewhere", windows: []).encoded().write(to: recentURL)
+        let recents = RecentsStore(defaults: scratchDefaults())
+        recents.add(recentURL)
+
+        let library = WorkspaceLibrary(defaults: scratchDefaults())
+        library.folder = folder
+
+        let controller = makeController(prompt: FakePrompt(), recents: recents, library: library)
+        controller.showWindow(nil)
+
+        XCTAssertEqual(
+            Set(controller.host.recents.map(\.filename)),
+            ["Coding.snapdesk", "Writing.snapdesk", recentURL.lastPathComponent],
+            "the folder and recents are one list"
+        )
+        XCTAssertTrue(controller.host.hasWorkspaceFolder)
+    }
+
+    /// With no folder chosen the sidebar is exactly the recents list, which is what it was before
+    /// the library existed.
+    func testWithNoFolderTheSidebarIsStillJustRecents() throws {
+        let recentURL = temporaryWorkspaceURL()
+        try makeDocument(name: "Elsewhere", windows: []).encoded().write(to: recentURL)
+        let recents = RecentsStore(defaults: scratchDefaults())
+        recents.add(recentURL)
+
+        let controller = makeController(prompt: FakePrompt(), recents: recents)
+        controller.showWindow(nil)
+
+        XCTAssertEqual(controller.host.recents.map(\.filename), [recentURL.lastPathComponent])
+        XCTAssertFalse(controller.host.hasWorkspaceFolder)
+    }
+
+    /// The per-row Launch button restores that workspace from its file, rather than whatever the
+    /// editor happens to be showing.
+    func testTheLaunchButtonOnARowRestoresThatWorkspace() throws {
+        let recentURL = temporaryWorkspaceURL()
+        try makeDocument(name: "Elsewhere", windows: []).encoded().write(to: recentURL)
+        let recents = RecentsStore(defaults: scratchDefaults())
+        recents.add(recentURL)
+        var launched: [URL] = []
+
+        let controller = makeController(
+            prompt: FakePrompt(),
+            recents: recents,
+            launchFile: { launched.append($0) }
+        )
+        controller.showWindow(nil)
+        controller.launchSelectedWorkspace(recentURL)
+
+        XCTAssertEqual(launched, [recentURL])
     }
 }
 
@@ -835,4 +908,3 @@ final class WorkspacePreviewGeometryTests: XCTestCase {
         )
     }
 }
-

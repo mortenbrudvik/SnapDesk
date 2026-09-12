@@ -116,4 +116,112 @@ final class WorkspaceLibraryTests: XCTestCase {
             "not even the modification date may move"
         )
     }
+
+    // MARK: The folder
+
+    /// Only workspaces, and only from the folder itself. A folder the user nominates is very
+    /// likely a project directory with plenty else in it.
+    func testScanningAFolderListsEveryWorkspaceAndNothingElse() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        try write("Coding", in: folder)
+        try write("Writing", in: folder)
+        try write("notes", in: folder, extension: "txt")
+        try write("Archive", in: folder, extension: "snapdesk.bak")
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.folder = folder
+
+        let names = library.listing(recents: []).map(\.name)
+
+        XCTAssertEqual(names.sorted(), ["Coding", "Writing"])
+    }
+
+    /// Without a folder the listing is exactly the recents list, which is what the sidebar showed
+    /// before any of this existed.
+    func testWithNoFolderTheListingIsJustRecents() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let recent = try write("Coding", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+
+        XCTAssertEqual(library.listing(recents: [recent]).map(\.name), ["Coding"])
+    }
+
+    /// A workspace that is both in the folder and in recents is one workspace. Two rows with one
+    /// identity is the bug this prevents.
+    func testAWorkspaceInBothTheFolderAndRecentsAppearsOnce() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let shared = try write("Coding", in: folder)
+        let elsewhere = try scratchFolder()
+        let other = try write("Writing", in: elsewhere)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.folder = folder
+
+        let listing = library.listing(recents: [shared, other])
+
+        XCTAssertEqual(listing.map(\.name).sorted(), ["Coding", "Writing"])
+        XCTAssertEqual(listing.count, 2)
+    }
+
+    /// Most recently restored first, because that is what the user reaches for. Never-restored
+    /// workspaces go last in name order rather than in whatever order the file system listed
+    /// them, which is arbitrary and changes.
+    func testTheListingPutsTheMostRecentlyLaunchedFirstAndTheRestByName() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let old = try write("Old", in: folder)
+        let recent = try write("Recent", in: folder)
+        try write("Zebra", in: folder)
+        try write("Apple", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.folder = folder
+        library.recordLaunch(of: old, at: Date(timeIntervalSince1970: 1_000))
+        library.recordLaunch(of: recent, at: Date(timeIntervalSince1970: 2_000))
+
+        XCTAssertEqual(library.listing(recents: []).map(\.name), ["Recent", "Old", "Apple", "Zebra"])
+    }
+
+    /// The chosen folder is remembered across launches, or it would have to be picked every time.
+    func testTheChosenFolderSurvivesAReload() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        try write("Coding", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.folder = folder
+
+        let reloaded = WorkspaceLibrary(defaults: defaults)
+        // Compared by path: a directory URL resolved from a bookmark carries a trailing slash
+        // that the URL it was made from does not, and the two are the same folder.
+        XCTAssertEqual(reloaded.folder?.resolvingSymlinksInPath().path, folder.resolvingSymlinksInPath().path)
+        XCTAssertEqual(reloaded.listing(recents: []).map(\.name), ["Coding"])
+    }
+
+    /// A folder that has been deleted or unmounted yields nothing rather than trapping, and the
+    /// recents still list.
+    func testAFolderThatIsGoneLeavesRecentsListing() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        try write("Coding", in: folder)
+        let elsewhere = try scratchFolder()
+        let recent = try write("Writing", in: elsewhere)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.folder = folder
+        try FileManager.default.removeItem(at: folder)
+
+        XCTAssertEqual(library.listing(recents: [recent]).map(\.name), ["Writing"])
+    }
+
+    /// The listing carries the date so the sidebar can show it without asking a second time.
+    func testTheListingCarriesTheLastLaunchedDate() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let url = try write("Coding", in: folder)
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.folder = folder
+        library.recordLaunch(of: url, at: when)
+
+        XCTAssertEqual(library.listing(recents: []).first?.lastLaunched, when)
+    }
 }

@@ -141,6 +141,18 @@ final class HelpContentTests: XCTestCase {
         XCTAssertTrue(text.contains("when snapdesk starts"), "the help never explains the startup workspace")
     }
 
+    /// The sidebar lists a folder only once the user nominates one, so nothing in the app
+    /// reveals the feature until they find the button. The help has to.
+    func testTheHelpExplainsTheWorkspaceFolder() {
+        let text = HelpContent.topics()
+            .flatMap(\.entries)
+            .map { "\($0.term) \($0.detail)" }
+            .joined(separator: " ")
+            .lowercased()
+
+        XCTAssertTrue(text.contains("folder"), "the help never mentions the workspace folder")
+    }
+
     func testTroubleshootingExplainsEveryFailureTheHUDCanShow() {
         let troubleshooting = HelpContent.topics().first { $0.title == HelpContent.troubleshootingTitle }
         let terms = Set(troubleshooting?.entries.map(\.term) ?? [])

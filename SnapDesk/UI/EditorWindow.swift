@@ -8,6 +8,9 @@ struct EditorRecentItem: Identifiable, Equatable {
     var url: URL
     var name: String
     var filename: String
+    /// Nil for a workspace that has never been restored. Shown so the list says why it is in the
+    /// order it is in.
+    var lastLaunched: Date?
 }
 
 enum EditorSaveChoice {
@@ -91,6 +94,8 @@ final class RecentNameCache {
 final class EditorHost: ObservableObject {
     @Published var session: EditorSession
     @Published var recents: [EditorRecentItem] = []
+    /// Whether a folder has been nominated, so the sidebar can offer Choose or Change.
+    @Published var hasWorkspaceFolder = false
     @Published var selectedRecentID: String?
     @Published var selectedWindowIndex: Int?
 
@@ -117,8 +122,10 @@ final class EditorHost: ObservableObject {
 @MainActor
 final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let recents: RecentsStore
+    private let library: WorkspaceLibrary
     private let capture: () -> CaptureOutcome?
     private let launch: (WorkspaceDocument) -> Void
+    private let launchFile: (URL) -> Void
     private let prompt: any EditorPrompting
     private let beep: @MainActor () -> Void
     let host: EditorHost
@@ -131,12 +138,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     init(
         recents: RecentsStore,
+        library: WorkspaceLibrary = WorkspaceLibrary(),
         capture: @escaping () -> CaptureOutcome?,
         launch: @escaping (WorkspaceDocument) -> Void,
+        launchFile: @escaping (URL) -> Void = { _ in },
         prompt: any EditorPrompting = AppKitEditorPrompt(),
         beep: @escaping @MainActor () -> Void = { NSSound.beep() }
     ) {
         self.recents = recents
+        self.library = library
+        self.launchFile = launchFile
         self.capture = capture
         self.launch = launch
         self.prompt = prompt
@@ -309,6 +320,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
                 onReveal: { [weak self] in self?.revealInFinder() },
                 onTrash: { [weak self] in self?.moveToTrash() },
                 onLaunch: { [weak self] in self?.launchCurrent() },
+                onLaunchWorkspace: { [weak self] url in self?.launchSelectedWorkspace(url) },
+                onChooseFolder: { [weak self] in self?.chooseWorkspaceFolder() },
+                onClearFolder: { [weak self] in self?.clearWorkspaceFolder() },
                 onSave: { [weak self] in _ = self?.performSave() },
                 onSaveAs: { [weak self] in _ = self?.saveAs() },
                 onRemoveWindow: { [weak self] index in self?.removeWindow(at: index) }
@@ -549,20 +563,46 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         beep()
     }
 
+    /// The sidebar list: the nominated folder merged with recents, ordered by the library. With
+    /// no folder chosen this is exactly the recents list, which is what it was before.
     private func refreshRecents() {
-        host.recents = recents.urls.map { url in
-            let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-            let name = recentNames.name(for: url, modified: modified) {
-                try? WorkspaceDocument.load(from: url).name
-            } ?? url.deletingPathExtension().lastPathComponent
+        host.hasWorkspaceFolder = library.folder != nil
+        host.recents = library.listing(recents: recents.urls).map { row in
+            let modified = try? row.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            let name = recentNames.name(for: row.url, modified: modified) {
+                try? WorkspaceDocument.load(from: row.url).name
+            } ?? row.name
             return EditorRecentItem(
-                id: url.resolvingSymlinksInPath().path,
-                url: url,
+                id: row.url.resolvingSymlinksInPath().path,
+                url: row.url,
                 name: name,
-                filename: url.lastPathComponent
+                filename: row.url.lastPathComponent,
+                lastLaunched: row.lastLaunched
             )
         }
         syncRecentSelection()
+    }
+
+    /// Nominates the folder the sidebar lists alongside recents.
+    func chooseWorkspaceFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose the folder your workspaces live in."
+        guard panel.runModal() == .OK, let url = panel.urls.first else { return }
+        library.folder = url
+        refreshRecents()
+    }
+
+    func clearWorkspaceFolder() {
+        library.folder = nil
+        refreshRecents()
+    }
+
+    func launchSelectedWorkspace(_ url: URL) {
+        launchFile(url)
     }
 
     private func syncRecentSelection() {

@@ -10,6 +10,9 @@ struct EditorView: View {
     var onReveal: () -> Void
     var onTrash: () -> Void
     var onLaunch: () -> Void
+    var onLaunchWorkspace: (URL) -> Void
+    var onChooseFolder: () -> Void
+    var onClearFolder: () -> Void
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onRemoveWindow: (Int) -> Void
@@ -25,6 +28,9 @@ struct EditorView: View {
             onReveal: onReveal,
             onTrash: onTrash,
             onLaunch: onLaunch,
+            onLaunchWorkspace: onLaunchWorkspace,
+            onChooseFolder: onChooseFolder,
+            onClearFolder: onClearFolder,
             onSave: onSave,
             onSaveAs: onSaveAs,
             onRemoveWindow: onRemoveWindow
@@ -42,6 +48,9 @@ private struct EditorSplitView: View {
     var onReveal: () -> Void
     var onTrash: () -> Void
     var onLaunch: () -> Void
+    var onLaunchWorkspace: (URL) -> Void
+    var onChooseFolder: () -> Void
+    var onClearFolder: () -> Void
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onRemoveWindow: (Int) -> Void
@@ -56,22 +65,43 @@ private struct EditorSplitView: View {
         .frame(minWidth: 760, minHeight: 420)
     }
 
+    /// The file name, or when it was last restored. The date is what explains the list's order,
+    /// so it replaces the file name rather than crowding in beside it.
+    private func subtitle(for item: EditorRecentItem) -> String {
+        guard let lastLaunched = item.lastLaunched else { return item.filename }
+        return "Restored \(Self.relative.localizedString(for: lastLaunched, relativeTo: Date()))"
+    }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             List(selection: $host.selectedRecentID) {
-                Section("Recents") {
+                Section("Workspaces") {
                     if host.recents.isEmpty {
-                        Text("No Recents")
+                        Text(host.hasWorkspaceFolder ? "No Workspaces" : "No Recents")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(host.recents) { item in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name)
-                                    .lineLimit(1)
-                                Text(item.filename)
+                            HStack(spacing: 6) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name)
+                                        .lineLimit(1)
+                                    Text(subtitle(for: item))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 4)
+                                // One click to restore, rather than select-then-Launch. Selecting
+                                // the row still opens it for editing, which is unchanged.
+                                Button("Launch") { onLaunchWorkspace(item.url) }
+                                    .buttonStyle(.borderless)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
                             }
                             .tag(item.id)
                             .contentShape(Rectangle())
@@ -90,6 +120,10 @@ private struct EditorSplitView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Button("Capture", action: onCapture)
                 Button("Open…", action: onOpen)
+                Button(host.hasWorkspaceFolder ? "Change Folder…" : "Choose Folder…", action: onChooseFolder)
+                if host.hasWorkspaceFolder {
+                    Button("Stop Listing Folder", action: onClearFolder)
+                }
                 Button("Remove from Recents", action: onRemoveRecent)
                     .disabled(host.selectedRecentID == nil && session.fileURL == nil)
                 Button("Reveal in Finder", action: onReveal)
