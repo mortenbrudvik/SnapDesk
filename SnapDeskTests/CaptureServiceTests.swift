@@ -320,6 +320,26 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertNil(doc.windows[0].fullscreen)
     }
 
+    /// A usable document is kept; one that is not a location is dropped rather than saved. The
+    /// attribute is not a URL field — some apps put a window title in it — and a value that
+    /// reaches the file would be handed to LaunchServices on every later restore.
+    func testAUsableDocumentIsRecordedAndAnUnusableOneIsDropped() {
+        let frame = CGRect(x: 100, y: 138, width: 800, height: 600)
+        let withURL = snapshot(cgWindowID: 10, title: "Docs", cocoaFrame: frame, document: "https://example.com/a")
+        let withJunk = snapshot(cgWindowID: 11, title: "Junk", cocoaFrame: frame, document: "Untitled 3")
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [withURL, withJunk]]),
+            order: FakeOrder(ids: [10, 11]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.map(\.title), ["Docs", "Junk"], "the junk document must not cost the window")
+        XCTAssertEqual(doc.windows.map(\.document), ["https://example.com/a", nil])
+    }
+
     // MARK: What could not be read
 
     /// The failure this whole report exists for: an app that is busy when the hotkey fires does
@@ -470,11 +490,19 @@ final class CaptureServiceTests: XCTestCase {
             title: "Usable",
             cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600)
         )
+        // Not a location, and `validate()` refuses one. The window is still perfectly good, so the
+        // document has to be dropped without the window going with it.
+        let junkDocument = snapshot(
+            cgWindowID: 34,
+            title: "Junk document",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600),
+            document: "Untitled 3"
+        )
 
         let service = CaptureService(
             apps: FakeApps(running: [safari]),
-            ax: FakeAX(windowsByPid: [safari.pid: [zeroWidth, zeroHeight, negative, usable]]),
-            order: FakeOrder(ids: [30, 31, 32, 33]),
+            ax: FakeAX(windowsByPid: [safari.pid: [zeroWidth, zeroHeight, negative, usable, junkDocument]]),
+            order: FakeOrder(ids: [30, 31, 32, 33, 34]),
             displays: FakeDisplays(live: [display])
         )
 
@@ -485,7 +513,15 @@ final class CaptureServiceTests: XCTestCase {
             XCTAssertGreaterThan(window.width, 0, "\(window.title) was recorded with a size that is not positive")
             XCTAssertGreaterThan(window.height, 0, "\(window.title) was recorded with a size that is not positive")
         }
-        XCTAssertEqual(doc.windows.map(\.title), ["Negative", "Usable"], "only the degenerate sizes are dropped")
+        XCTAssertEqual(
+            doc.windows.map(\.title),
+            ["Negative", "Usable", "Junk document"],
+            "only the degenerate sizes are dropped"
+        )
+        XCTAssertNil(
+            doc.windows.first { $0.title == "Junk document" }?.document,
+            "the unusable document is dropped, but not the window"
+        )
         // The negative rect is recorded as the rectangle it describes, not as negative numbers.
         let repaired = try XCTUnwrap(doc.windows.first { $0.title == "Negative" })
         XCTAssertEqual(repaired.width, 400)
@@ -498,7 +534,8 @@ final class CaptureServiceTests: XCTestCase {
         subrole: String? = nil,
         cocoaFrame: CGRect?,
         minimized: Bool? = false,
-        fullscreen: Bool? = false
+        fullscreen: Bool? = false,
+        document: String? = nil
     ) -> AXWindowSnapshot {
         AXWindowSnapshot(
             cgWindowID: cgWindowID,
@@ -507,6 +544,7 @@ final class CaptureServiceTests: XCTestCase {
             cocoaFrame: cocoaFrame,
             minimized: minimized,
             fullscreen: fullscreen,
+            document: document,
             hasTitleBarButtons: true
         )
     }

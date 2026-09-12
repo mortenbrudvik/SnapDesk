@@ -538,6 +538,34 @@ final class AXWindowTests: XCTestCase {
         )
     }
 
+    // MARK: Documents
+
+    /// Measured across running apps: `AXDocument` sits on the window itself, not somewhere down
+    /// the element tree — Brave puts the page URL there, Terminal its working directory, TextEdit
+    /// the open file. That is what makes capturing it cheap, and this pins it against a real
+    /// window rather than against the probe I ran once.
+    ///
+    /// `NSWindow.representedURL` is AppKit's own door onto the same attribute, so a window the
+    /// test owns can vend a document without a second app to drive.
+    func testTheDocumentComesFromTheWindowItself() throws {
+        let window = makeWindow()
+        let ax = try axWindow(for: window)
+        XCTAssertNil(ax.documentURL, "a window representing no file has no document")
+
+        window.representedURL = URL(fileURLWithPath: "/tmp/snapdesk-document-test.txt")
+        waitUntil("the document to be vended") { ax.documentURL != nil }
+
+        let document = try XCTUnwrap(ax.documentURL)
+        XCTAssertTrue(
+            document.hasSuffix("snapdesk-document-test.txt"),
+            "unexpected AXDocument value: \(document)"
+        )
+        XCTAssertTrue(
+            WorkspaceDocumentReference.isUsable(document),
+            "what a real window vends has to survive the check capture applies: \(document)"
+        )
+    }
+
     // MARK: Fullscreen
 
     /// Fullscreen is the opposite case to zoom, and the reason this test is worth its cost.

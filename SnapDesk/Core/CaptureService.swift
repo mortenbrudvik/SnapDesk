@@ -43,6 +43,9 @@ struct AXWindowSnapshot: Equatable {
     /// True fullscreen, read from a real attribute rather than inferred the way zoom must be.
     /// Nil for a read that failed; see `AXWindow.fullscreenState`.
     var fullscreen: Bool?
+    /// Whatever the window vends as its document, unchecked. A candidate rather than a URL; see
+    /// `AXWindow.documentURL`, and `WorkspaceDocumentReference` for what may actually be saved.
+    var document: String?
     /// See `CaptureFilter.isChromelessStandardWindow`.
     var hasTitleBarButtons: Bool
 }
@@ -251,6 +254,13 @@ struct CaptureService {
                 // fullscreen on every later restore. Unlike the frame and the minimized state, it
                 // does not disqualify the window — nil is a value this field is allowed to hold.
                 fullscreen: item.window.fullscreen,
+                // Filtered rather than passed through: the attribute is not a URL field, and a
+                // capture must never produce a document the loader would then refuse. That
+                // invariant is pinned by `testCaptureNeverRecordsAWindowValidationWouldReject`.
+                // An unusable value costs the document, never the window.
+                document: item.window.document.flatMap {
+                    WorkspaceDocumentReference.isUsable($0) ? $0 : nil
+                },
                 arguments: ""
             )
         }
@@ -334,6 +344,7 @@ struct AXWindowCapturer: AXCapturing {
                 cocoaFrame: window.cocoaFrame,
                 minimized: window.minimizedState,
                 fullscreen: window.fullscreenState,
+                document: window.documentURL,
                 hasTitleBarButtons: window.hasTitleBarButtons
             )
         }

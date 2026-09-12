@@ -248,6 +248,17 @@ struct AXWindow {
         zoomedState ?? false
     }
 
+    /// The document, page or folder the window is showing, when the app vends one.
+    ///
+    /// Measured on the window element itself, which is the whole reason capturing this is cheap:
+    /// Brave puts the page URL here, Terminal its working directory, TextEdit the open file.
+    /// Safari and Finder vend nothing at all, and some apps put a string here that is not a
+    /// location — so what comes back is a candidate, not a URL, and
+    /// `WorkspaceDocumentReference.isUsable` is what decides whether it may be saved.
+    var documentURL: String? {
+        stringValue(element, kAXDocumentAttribute)
+    }
+
     /// macOS *does* vend this one, which is exactly what zoom does not: there is no `AXZoomed` in
     /// any framework, so zoom is inferred from the frame above while fullscreen is simply read.
     /// The SDK declares no constant for the attribute, the same situation as
