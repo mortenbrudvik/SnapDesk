@@ -103,6 +103,15 @@ enum HelpContent {
                 Entry(term: "Capture", detail: shortcut(.capture)),
                 Entry(term: "Editor", detail: shortcut(.editor)),
                 Entry(
+                    term: "Workspace shortcuts",
+                    detail: """
+                    Five more keys you can bind, each to a workspace of your choosing, so a desk \
+                    comes back without opening a menu. They start unbound: pick the keys and the \
+                    workspace in Settings…. A key whose workspace has since been deleted says so \
+                    rather than doing nothing.
+                    """
+                ),
+                Entry(
                     term: "Changing them",
                     detail: """
                     Settings… lets you record a different combination. The shortcuts work while any \
@@ -159,6 +168,26 @@ enum HelpContent {
                     On, SnapDesk moves windows an app already has open. Off, it asks the app for a \
                     new instance and leaves your existing windows alone — though many apps ignore \
                     that request and simply activate the copy already running.
+                    """
+                ),
+            ]),
+
+            Topic(title: "Settings", entries: [
+                Entry(
+                    term: "Launch at login",
+                    detail: """
+                    Adds SnapDesk to your login items. macOS may ask you to approve it, and you can \
+                    remove it again in System Settings without SnapDesk running — which is why this \
+                    reads the system's answer rather than remembering its own.
+                    """
+                ),
+                Entry(
+                    term: "Restore when SnapDesk starts",
+                    detail: """
+                    Picks one workspace to come back every time the app starts. Deliberately not \
+                    "at login": SnapDesk cannot tell a login launch from any other, so it does what \
+                    the label says instead of guessing. A workspace you opened by double-clicking \
+                    goes first, and this one follows.
                     """
                 ),
             ]),

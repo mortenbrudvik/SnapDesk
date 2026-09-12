@@ -71,7 +71,7 @@ final class AppDelegateTests: XCTestCase {
         let shortcuts: WorkspaceShortcuts
     }
 
-    private func makeFixture(trusted: Bool = true) -> Fixture {
+    private func makeFixture(trusted: Bool = true, startupWorkspace: URL? = nil) -> Fixture {
         let restorer = FakeRestorer()
         let hud = FakeHUD()
         let recorder = Recorder()
@@ -84,6 +84,7 @@ final class AppDelegateTests: XCTestCase {
             dependencies: AppDelegate.Dependencies(
                 recents: recents,
                 workspaceShortcuts: shortcuts,
+                startupWorkspace: { startupWorkspace },
                 capture: { capture },
                 restorer: restorer,
                 hud: hud,
@@ -298,6 +299,64 @@ final class AppDelegateTests: XCTestCase {
             await Task.yield()
         }
         XCTAssertTrue(condition(), "condition never held", file: file, line: line)
+    }
+
+    // MARK: The startup workspace
+
+    /// Drains through the same gate a double-clicked file uses, so a startup restore cannot begin
+    /// before the status item and hot keys exist.
+    func testAStartupWorkspaceIsRestoredOnceLaunchCompletes() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture(startupWorkspace: url)
+
+        XCTAssertTrue(fixture.restorer.launched.isEmpty, "not before the app is wired")
+
+        fixture.delegate.completeLaunch()
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertEqual(fixture.restorer.launched.map(\.document.name), ["Coding"])
+    }
+
+    func testNoStartupWorkspaceRestoresNothing() async {
+        let fixture = makeFixture()
+
+        fixture.delegate.completeLaunch()
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertTrue(fixture.restorer.launched.isEmpty)
+        XCTAssertTrue(fixture.recorder.alerts.isEmpty)
+    }
+
+    /// A file the user double-clicked is why the app is launching at all, so it goes first — the
+    /// startup workspace is the default for when nothing else was asked for.
+    func testADoubleClickedFileIsRestoredBeforeTheStartupWorkspace() async throws {
+        let startup = try writeWorkspace(makeDocument(name: "Startup"))
+        let opened = try writeWorkspace(makeDocument(name: "Opened"))
+        let fixture = makeFixture(startupWorkspace: startup)
+
+        fixture.delegate.application(NSApp, open: [opened])
+        fixture.delegate.completeLaunch()
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertEqual(
+            fixture.restorer.launched.map(\.document.name),
+            ["Opened", "Startup"],
+            "the file the user asked for comes first"
+        )
+    }
+
+    /// A startup workspace whose file has since been deleted reports it, rather than leaving the
+    /// user to wonder why nothing came back.
+    func testAStartupWorkspaceWhoseFileIsGoneReportsIt() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture(startupWorkspace: url)
+        try FileManager.default.removeItem(at: url)
+
+        fixture.delegate.completeLaunch()
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertTrue(fixture.restorer.launched.isEmpty)
+        XCTAssertEqual(fixture.recorder.alerts.compactMap(\.detail), [WorkspaceOpener.missingFileDetail])
     }
 
     // MARK: Workspace hotkeys

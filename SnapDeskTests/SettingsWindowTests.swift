@@ -66,8 +66,10 @@ final class SettingsWindowTests: XCTestCase {
         let window = try XCTUnwrap(controller.window)
         defer { window.close() }
 
-        XCTAssertNotNil(window.contentViewController, "the Shortcuts and Launch at login form")
-        XCTAssertEqual(window.contentView?.frame.size, NSSize(width: 420, height: 240))
+        XCTAssertNotNil(window.contentViewController, "the Shortcuts, Workspace shortcuts and General form")
+        // Grew with the five workspace shortcut rows and the startup workspace picker. The window
+        // and the SwiftUI frame have to agree or the form is clipped, which is what this pins.
+        XCTAssertEqual(window.contentView?.frame.size, NSSize(width: 460, height: 480))
         // The SwiftUI form declares a fixed frame, so a resizable window would only add empty
         // space; closable is the only way out of a window an LSUIElement app cannot re-focus
         // from a Dock icon.

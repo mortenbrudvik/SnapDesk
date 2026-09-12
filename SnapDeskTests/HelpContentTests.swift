@@ -120,6 +120,27 @@ final class HelpContentTests: XCTestCase {
         XCTAssertTrue(text.contains("twice"), "the help never warns that a second restore repeats a document")
     }
 
+    /// The five workspace shortcuts ship unbound, so nothing in the app reveals them until the
+    /// user goes looking. A shortcuts page that omits them leaves the feature undiscoverable.
+    func testTheShortcutsTopicMentionsTheWorkspaceSlots() throws {
+        let topic = try XCTUnwrap(HelpContent.topics().first { $0.title == HelpContent.shortcutsTitle })
+        let text = topic.entries.map { "\($0.term) \($0.detail)" }.joined(separator: " ").lowercased()
+
+        XCTAssertTrue(text.contains("workspace"), "the shortcuts topic never mentions the workspace slots")
+    }
+
+    /// "When SnapDesk starts" is not "at login", and the help has to say which it is or the user
+    /// will reasonably expect the other.
+    func testTheHelpExplainsWhenAStartupWorkspaceIsRestored() {
+        let text = HelpContent.topics()
+            .flatMap(\.entries)
+            .map { "\($0.term) \($0.detail)" }
+            .joined(separator: " ")
+            .lowercased()
+
+        XCTAssertTrue(text.contains("when snapdesk starts"), "the help never explains the startup workspace")
+    }
+
     func testTroubleshootingExplainsEveryFailureTheHUDCanShow() {
         let troubleshooting = HelpContent.topics().first { $0.title == HelpContent.troubleshootingTitle }
         let terms = Set(troubleshooting?.entries.map(\.term) ?? [])

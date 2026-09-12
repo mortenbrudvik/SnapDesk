@@ -128,6 +128,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     struct Dependencies {
         var recents: RecentsStore
         var workspaceShortcuts: WorkspaceShortcuts
+        /// The workspace to restore when SnapDesk starts, if the user has chosen one.
+        ///
+        /// Deliberately "when SnapDesk starts" rather than "at login": the app cannot reliably
+        /// tell a login launch from any other, and a setting that means exactly what it says is
+        /// better than one that guesses and is wrong some of the time.
+        var startupWorkspace: @MainActor () -> URL?
         var capture: @MainActor () -> CaptureOutcome
         var restorer: any WorkspaceRestoring
         var hud: any LaunchHUDPresenting
@@ -142,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             return Dependencies(
                 recents: RecentsStore(),
                 workspaceShortcuts: WorkspaceShortcuts(),
+                startupWorkspace: { AppSettings.shared.startupWorkspace },
                 capture: { captureService.capture() },
                 restorer: LaunchService(),
                 hud: LaunchHUDController(),
@@ -244,6 +251,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         pendingOpens = []
         for url in urls {
             open(url)
+        }
+        // After the buffer, never before it: a file the user double-clicked is why the app is
+        // launching at all, so it goes first and the startup workspace queues behind it. Both go
+        // through `open`, so a startup workspace that has been deleted says so.
+        if let startup = dependencies.startupWorkspace() {
+            open(startup)
         }
     }
 
@@ -443,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
 
     private func openSettings() {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController()
+            settingsWindow = SettingsWindowController(shortcuts: dependencies.workspaceShortcuts)
         }
         settingsWindow?.showWindow(nil)
     }

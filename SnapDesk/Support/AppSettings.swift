@@ -99,14 +99,49 @@ final class AppSettings: ObservableObject {
         loginItems.status
     }
 
+    /// The workspace to restore when SnapDesk starts, or nil for none.
+    ///
+    /// Stored as a bookmark like every other workspace reference here, so the choice follows the
+    /// file if the user moves or renames it. Unlike `launchAtLogin` this *is* ours to store:
+    /// nothing outside the app owns it.
+    var startupWorkspace: URL? {
+        get {
+            var needsRewrite = false
+            guard let resolved = storedStartupWorkspace.resolve(needsRewrite: &needsRewrite) else { return nil }
+            if needsRewrite {
+                startupWorkspace = resolved
+            }
+            return resolved
+        }
+        set {
+            let entry = newValue.map(WorkspaceBookmark.make(for:)) ?? .none
+            storedStartupWorkspace = entry
+            defaults.set(entry.bookmark, forKey: Key.startupBookmark)
+            defaults.set(entry.path, forKey: Key.startupPath)
+        }
+    }
+
+    private enum Key {
+        static let startupBookmark = "startupWorkspaceBookmark"
+        static let startupPath = "startupWorkspacePath"
+    }
+
+    private var storedStartupWorkspace: WorkspaceBookmark
+    private let defaults: UserDefaults
     private let loginItems: any LoginItemService
     private var isApplyingLoginItem = false
 
-    /// Nothing here is written to `UserDefaults`: `SMAppService` owns the login-item state, and
-    /// a local copy could only ever disagree with it — the user can remove the item in System
-    /// Settings without SnapDesk running.
-    init(loginItems: any LoginItemService = SMAppService.mainApp) {
+    /// The login-item state is deliberately *not* mirrored into `UserDefaults`: `SMAppService`
+    /// owns it, and a local copy could only ever disagree with it — the user can remove the item
+    /// in System Settings without SnapDesk running. The startup workspace is the opposite case;
+    /// nothing outside the app owns that, so it is stored here.
+    init(loginItems: any LoginItemService = SMAppService.mainApp, defaults: UserDefaults = .standard) {
         self.loginItems = loginItems
+        self.defaults = defaults
+        storedStartupWorkspace = WorkspaceBookmark(
+            path: defaults.string(forKey: Key.startupPath) ?? "",
+            bookmark: defaults.data(forKey: Key.startupBookmark) ?? Data()
+        )
         launchAtLogin = loginItems.status == .enabled
         loginItemMessage = Self.message(for: loginItems.status)
     }
