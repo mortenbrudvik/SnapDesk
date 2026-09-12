@@ -1,6 +1,6 @@
 # SnapDesk v2 Features Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Four features that close the gap with PowerToys Workspaces and fix SnapDesk's own biggest limitation — restore documents and URLs, restore fullscreen windows, launch a workspace from a hotkey or at startup, and browse every workspace you own.
 
@@ -79,7 +79,7 @@ Smallest of the four, and it establishes the optional-field pattern Phase B reus
 
 **Interfaces:** Produces `SavedWindow.fullscreen: Bool?` — nil means "not recorded", which is what every existing file says.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 /// The field is optional so that every file written before it existed still opens, and a file
@@ -106,12 +106,12 @@ func testAWindowWithNoFullscreenStateWritesNoKey() throws {
 }
 ```
 
-- [ ] **Step 2: Run and watch it fail**
+- [x] **Step 2: Run and watch it fail**
 
 Run: `xcodebuild … test -only-testing:SnapDeskTests/WorkspaceDocumentTests`
 Expected: FAIL, `value of type 'SavedWindow' has no member 'fullscreen'`
 
-- [ ] **Step 3: Add the field**
+- [x] **Step 3: Add the field**
 
 ```swift
 struct SavedWindow: Codable, Equatable, Sendable {
@@ -123,8 +123,8 @@ struct SavedWindow: Codable, Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: Run and watch it pass**
-- [ ] **Step 5: Commit** — `git commit -m "feat: record whether a window was fullscreen"`
+- [x] **Step 4: Run and watch it pass**
+- [x] **Step 5: Commit** — `git commit -m "feat: record whether a window was fullscreen"`
 
 ### Task A2: Reading and writing fullscreen over Accessibility
 
@@ -132,7 +132,7 @@ struct SavedWindow: Codable, Equatable, Sendable {
 
 **Interfaces:** Produces `AXWindow.fullscreenState: Bool?` and `setFullScreen(_:) -> AXError`.
 
-- [ ] **Step 1: Write the failing test** (needs the Accessibility grant, like the rest of that file)
+- [x] **Step 1: Write the failing test** (needs the Accessibility grant, like the rest of that file)
 
 ```swift
 /// Unlike zoom, fullscreen *is* a real attribute — measured present on every window tested, and
@@ -163,8 +163,8 @@ func testFullscreenIsNilForAWindowThatCannotBeRead() throws {
 }
 ```
 
-- [ ] **Step 2: Run and watch it fail** — no member `fullscreenState`
-- [ ] **Step 3: Implement**
+- [x] **Step 2: Run and watch it fail** — no member `fullscreenState`
+- [x] **Step 3: Implement**
 
 ```swift
 /// macOS *does* vend this one, unlike zoom: "AXFullScreen" is present on every window measured
@@ -186,8 +186,8 @@ func setFullScreen(_ fullscreen: Bool) -> AXError {
 }
 ```
 
-- [ ] **Step 4: Run and watch it pass**, with `TEST_RUNNER_SNAPDESK_REQUIRE_AX=1`
-- [ ] **Step 5: Commit**
+- [x] **Step 4: Run and watch it pass**, with `TEST_RUNNER_SNAPDESK_REQUIRE_AX=1`
+- [x] **Step 5: Commit**
 
 ### Task A3: Capture and restore it
 
@@ -195,7 +195,7 @@ func setFullScreen(_ fullscreen: Bool) -> AXError {
 
 **Interfaces:** Consumes A1 and A2. `AXWindowSnapshot` gains `fullscreen: Bool?`; `PlaceableWindow` gains `fullscreenState` and `setFullScreen`.
 
-- [ ] **Step 1: Write the failing capture test**
+- [x] **Step 1: Write the failing capture test**
 
 ```swift
 func testFullscreenIsRecordedFromTheSnapshot() {
@@ -211,7 +211,7 @@ func testFullscreenIsRecordedFromTheSnapshot() {
 }
 ```
 
-- [ ] **Step 2: Write the failing placement tests**
+- [x] **Step 2: Write the failing placement tests**
 
 ```swift
 /// Fullscreen is applied last, after the frame — entering it replaces the frame entirely, so
@@ -265,8 +265,8 @@ func testANilFullscreenLeavesTheWindowAlone() async {
 }
 ```
 
-- [ ] **Step 3: Run both and watch them fail**
-- [ ] **Step 4: Implement**
+- [x] **Step 3: Run both and watch them fail**
+- [x] **Step 4: Implement**
 
 Fullscreen needs a new field on `AXWindowSnapshot`, and zoom is the reason it is worth saying why. Zoom is never read — `CaptureService` infers it with `AXWindow.isZoomed(frame:on:)` by comparing the frame to the display, because macOS vends no zoom attribute. Fullscreen does have one, so it is read from the window and carried like `minimized`.
 
@@ -281,9 +281,9 @@ if let fullscreen {
 }
 ```
 
-- [ ] **Step 5: Run, watch pass, then mutation-check** — revert the ordering so fullscreen is applied before the frame and confirm `testASlotSavedFullscreenEntersFullscreenAfterTheFrameIsWritten` fails.
-- [ ] **Step 6: Editor row + help** — a Fullscreen toggle beside Minimized and Zoomed in `WindowSlotRow`, and a `HelpContent` line saying a fullscreen window returns to its own Space, which macOS chooses.
-- [ ] **Step 7: Commit**
+- [x] **Step 5: Run, watch pass, then mutation-check** — revert the ordering so fullscreen is applied before the frame and confirm `testASlotSavedFullscreenEntersFullscreenAfterTheFrameIsWritten` fails.
+- [x] **Step 6: Editor row + help** — a Fullscreen toggle beside Minimized and Zoomed in `WindowSlotRow`, and a `HelpContent` line saying a fullscreen window returns to its own Space, which macOS chooses.
+- [x] **Step 7: Commit**
 
 ---
 
@@ -295,7 +295,7 @@ The feature that fixes "a cold start often yields one window where you saved thr
 
 **Files:** Modify `SnapDesk/Core/WorkspaceDocument.swift`; Test `SnapDeskTests/WorkspaceDocumentTests.swift`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 func testDocumentIsOptionalAndRoundTrips() throws {
@@ -322,10 +322,10 @@ func testADocumentThatIsNotAUsableURLIsRejected() throws {
 }
 ```
 
-- [ ] **Step 2: Run and watch it fail**
-- [ ] **Step 3: Add the field and `validate()` rule** — accept `http`, `https`, `file`, or an absolute path; reject everything else, naming the window in the message the way the other rules do.
-- [ ] **Step 4: Run and watch it pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 2: Run and watch it fail**
+- [x] **Step 3: Add the field and `validate()` rule** — accept `http`, `https`, `file`, or an absolute path; reject everything else, naming the window in the message the way the other rules do.
+- [x] **Step 4: Run and watch it pass**
+- [x] **Step 5: Commit**
 
 ### Task B2: Capturing a document
 
@@ -333,7 +333,7 @@ func testADocumentThatIsNotAUsableURLIsRejected() throws {
 
 **Interfaces:** Produces `AXWindow.documentURL: String?`, read from `AXDocument` on the window itself.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 /// Measured: `AXDocument` sits on the window, not deep in the tree — Brave puts the page URL
@@ -354,10 +354,10 @@ func testACapturedDocumentIsRecordedAndAnUnusableOneIsNot() {
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail**
-- [ ] **Step 3: Implement** — `documentURL` reads `kAXDocumentAttribute` through the existing `stringValue` path; `AXWindowSnapshot` gains `document: String?` and the test helper a matching defaulted parameter; `CaptureService` keeps the value only when it passes the same check `validate()` applies, so a capture can never produce a document the loader would reject (the invariant `testCaptureNeverRecordsAWindowValidationWouldReject` already pins for sizes).
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 2: Run and watch them fail**
+- [x] **Step 3: Implement** — `documentURL` reads `kAXDocumentAttribute` through the existing `stringValue` path; `AXWindowSnapshot` gains `document: String?` and the test helper a matching defaulted parameter; `CaptureService` keeps the value only when it passes the same check `validate()` applies, so a capture can never produce a document the loader would reject (the invariant `testCaptureNeverRecordsAWindowValidationWouldReject` already pins for sizes).
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Commit**
 
 ### Task B3: Opening the document on restore
 
@@ -374,7 +374,7 @@ protocol DocumentOpening {
 
 `NSWorkspaceDocumentOpener` wraps `NSWorkspace.shared.open(_:withApplicationAt:configuration:)` in production; `FakeDocumentOpener` records calls in tests.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```swift
 /// The point of the whole phase. Arguments only reach a *new* instance, so a running app ignores
@@ -412,24 +412,24 @@ func testADocumentThatCannotBeOpenedFailsTheSlot() async {
 }
 ```
 
-- [ ] **Step 2: Run and watch them fail**
-- [ ] **Step 3: Implement**
+- [x] **Step 2: Run and watch them fail**
+- [x] **Step 3: Implement**
   - `LaunchAction` gains `.openDocument(url: URL, arguments: [String], newInstance: Bool)`, chosen by `LaunchPlanner` whenever a slot has a document. A document slot always opens on its own, even under `moveExistingWindows`, because that is how the second window comes into being.
   - `SlotFailure` gains `.documentFailed` with display text "Could not open document", which `HelpContent` must then explain or `testTroubleshootingExplainsEveryFailureTheHUDCanShow` fails.
   - `LaunchService` calls the opener in the launch loop, under the same `open(at:)` timeout treatment so a hung LaunchServices cannot stall the restore.
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Mutation-check** — make `LaunchPlanner` ignore `document` and confirm the first test fails.
-- [ ] **Step 6: Commit**
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Mutation-check** — make `LaunchPlanner` ignore `document` and confirm the first test fails.
+- [x] **Step 6: Commit**
 
 ### Task B4: The editor field, and being honest about repeats
 
 **Files:** Modify `SnapDesk/UI/EditorView.swift`, `SnapDesk/UI/HelpContent.swift`; Test `SnapDeskTests/EditorWindowTests.swift`, `SnapDeskTests/HelpContentTests.swift`
 
-- [ ] **Step 1: Write the failing tests** — a Document field on each row commits through a binding that rejects a value `validate()` would refuse, the way `WindowSizeField` already clamps sizes; and the help explains that restoring twice may leave a browser with the page open twice.
-- [ ] **Step 2: Run and watch fail**
-- [ ] **Step 3: Implement** the field and the help entry.
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write the failing tests** — a Document field on each row commits through a binding that rejects a value `validate()` would refuse, the way `WindowSizeField` already clamps sizes; and the help explains that restoring twice may leave a browser with the page open twice.
+- [x] **Step 2: Run and watch fail**
+- [x] **Step 3: Implement** the field and the help entry.
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Commit**
 
 ---
 
@@ -443,11 +443,11 @@ No schema change; `AppSettings` and `HotkeyCenter` already carry everything need
 
 **Design:** five fixed names (`workspace1` … `workspace5`), each optionally bound to a workspace by bookmark in `UserDefaults`. Fixed rather than one-per-workspace because `KeyboardShortcuts.Name` is a persisted identity, and minting one per file would leak a binding every time a workspace is deleted.
 
-- [ ] **Step 1: Write the failing tests** — the five names have distinct raw values and no default shortcut; assigning a workspace stores a bookmark that survives a reload; clearing it removes the binding; a shortcut whose workspace file is gone reports the same "could not be found" alert as a stale recent.
-- [ ] **Step 2: Run and watch fail**
-- [ ] **Step 3: Implement** — `WorkspaceShortcuts` in `AppSettings`, storing a bookmark per slot. `RecentsStore` already has this logic in `StoredRecent`, `persist()` and `load(from:)`, keyed by `Key.bookmarks` and `Key.paths`. Extract it into one bookmark helper both call rather than writing it twice — a second copy of stale-bookmark handling is a second thing to get wrong.
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write the failing tests** — the five names have distinct raw values and no default shortcut; assigning a workspace stores a bookmark that survives a reload; clearing it removes the binding; a shortcut whose workspace file is gone reports the same "could not be found" alert as a stale recent.
+- [x] **Step 2: Run and watch fail**
+- [x] **Step 3: Implement** — `WorkspaceShortcuts` in `AppSettings`, storing a bookmark per slot. `RecentsStore` already has this logic in `StoredRecent`, `persist()` and `load(from:)`, keyed by `Key.bookmarks` and `Key.paths`. Extract it into one bookmark helper both call rather than writing it twice — a second copy of stale-bookmark handling is a second thing to get wrong.
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Commit**
 
 ### Task C2: Restore a workspace at startup
 
@@ -455,7 +455,7 @@ No schema change; `AppSettings` and `HotkeyCenter` already carry everything need
 
 **Design:** "Restore this workspace when SnapDesk starts", not "at login". SnapDesk cannot reliably tell a login launch from any other, and a setting that means what it says is better than one that guesses.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```swift
 /// Drains through the same buffer a double-clicked file uses, so a startup restore cannot begin
@@ -474,13 +474,13 @@ func testAStartupWorkspaceIsRestoredOnceLaunchCompletes() async throws {
 func testNoStartupWorkspaceRestoresNothing() async { /* … */ }
 ```
 
-- [ ] **Step 2: Run and watch fail**
+- [x] **Step 2: Run and watch fail**
 `makeFixture` gains `startupWorkspace: URL? = nil`, threaded into `AppDelegate.Dependencies` as a `() -> URL?`, because that is how every other environment dependency in this delegate is injected.
 
-- [ ] **Step 3: Implement** — `completeLaunch()` enqueues the startup workspace after draining `pendingOpens`, so a double-clicked file wins over the startup default.
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Settings UI + help topic**
-- [ ] **Step 6: Commit**
+- [x] **Step 3: Implement** — `completeLaunch()` enqueues the startup workspace after draining `pendingOpens`, so a double-clicked file wins over the startup default.
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Settings UI + help topic**
+- [x] **Step 6: Commit**
 
 ---
 
@@ -492,32 +492,32 @@ func testNoStartupWorkspaceRestoresNothing() async { /* … */ }
 
 **Design:** the date lives in `UserDefaults`, keyed by resolved path — deliberately unlike PowerToys, which writes `lastLaunchedTime` into the workspace. A restore that rewrites your file dirties version control, breaks a read-only file, and changes a document you did not edit.
 
-- [ ] **Step 1: Write the failing tests** — recording a launch stores a date; the date survives a reload; a file renamed on disk keeps its date through its bookmark; entries for files that no longer exist are pruned on load.
-- [ ] **Step 2: Run and watch fail**
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write the failing tests** — recording a launch stores a date; the date survives a reload; a file renamed on disk keeps its date through its bookmark; entries for files that no longer exist are pruned on load.
+- [x] **Step 2: Run and watch fail**
+- [x] **Step 3: Implement**
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Commit**
 
 ### Task D2: A folder of workspaces
 
 **Files:** Modify `SnapDesk/Support/WorkspaceLibrary.swift`, `SnapDesk/UI/EditorView.swift`, `SnapDesk/UI/EditorWindow.swift`; Test `SnapDeskTests/WorkspaceLibraryTests.swift`, `SnapDeskTests/EditorWindowTests.swift`
 
-- [ ] **Step 1: Write the failing tests** — scanning a folder lists every `.snapdesk` in it and no other file; the list merges the folder with recents without duplicating a file present in both; ordering is most-recently-launched first with never-launched last, by name; a folder the user has not chosen yields recents alone, exactly as today.
-- [ ] **Step 2: Run and watch fail**
-- [ ] **Step 3: Implement** — a security-scoped bookmark for the folder, chosen in Settings; the scan is `contentsOfDirectory` filtered on `WorkspaceFileType.fileExtension` rather than a bare `"snapdesk"` literal. Never decode a file just to list it: the display name comes from `RecentNameCache` (in `EditorWindow.swift`), which already caches on modification date.
-- [ ] **Step 4: Run and watch pass**
-- [ ] **Step 5: Sidebar** — the existing Recents list becomes a Workspaces list with a Launch button per row, keeping select-to-edit as it is.
-- [ ] **Step 6: Commit**
+- [x] **Step 1: Write the failing tests** — scanning a folder lists every `.snapdesk` in it and no other file; the list merges the folder with recents without duplicating a file present in both; ordering is most-recently-launched first with never-launched last, by name; a folder the user has not chosen yields recents alone, exactly as today.
+- [x] **Step 2: Run and watch fail**
+- [x] **Step 3: Implement** — a security-scoped bookmark for the folder, chosen in Settings; the scan is `contentsOfDirectory` filtered on `WorkspaceFileType.fileExtension` rather than a bare `"snapdesk"` literal. Never decode a file just to list it: the display name comes from `RecentNameCache` (in `EditorWindow.swift`), which already caches on modification date.
+- [x] **Step 4: Run and watch pass**
+- [x] **Step 5: Sidebar** — the existing Recents list becomes a Workspaces list with a Launch button per row, keeping select-to-edit as it is.
+- [x] **Step 6: Commit**
 
 ---
 
 ## Verification, before calling any phase done
 
-- [ ] `SNAPDESK_REQUIRE_AX=1 TEST_RUNNER_SNAPDESK_REQUIRE_AX=1 xcodebuild … test` — 0 failures, 0 skipped, 0 warnings.
-- [ ] Each new behaviour mutation-checked: revert it, confirm a named test fails, restore.
-- [ ] `HelpContent` covers every new `SlotFailure`, which its own test enforces.
-- [ ] CLAUDE.md updated for any new invariant, above all the measured Accessibility facts in this plan.
-- [ ] A workspace written by the new build opens in the previous build, and vice versa.
+- [x] `SNAPDESK_REQUIRE_AX=1 TEST_RUNNER_SNAPDESK_REQUIRE_AX=1 xcodebuild … test` — 0 failures, 0 skipped, 0 warnings.
+- [x] Each new behaviour mutation-checked: revert it, confirm a named test fails, restore.
+- [x] `HelpContent` covers every new `SlotFailure`, which its own test enforces.
+- [x] CLAUDE.md updated for any new invariant, above all the measured Accessibility facts in this plan.
+- [x] A workspace written by the new build opens in the previous build, and vice versa.
 
 ## Deliberately not in this plan
 
@@ -525,3 +525,40 @@ func testNoStartupWorkspaceRestoresNothing() async { /* … */ }
 - **Automatic arguments.** Measured: GUI apps are launched by Finder with no arguments at all, so there is nothing to capture. PowerToys writes an empty string too.
 - **Safari URLs without typing.** Safari exposes neither `AXDocument` nor `AXURL` to an ordinary client. Apple Events would work, at the cost of a per-browser Automation prompt, and belong in their own slice if wanted.
 - **Snapping to zones.** Neither tool does it, and macOS has no public API for it.
+
+---
+
+## Outcome
+
+Implemented on `feat/snapdesk-v2-features`, twelve commits, 408 tests passing with
+0 skipped and 0 warnings in both Debug and Release. Every step above is done. Four
+things turned out differently from the plan, each because the code or a measurement
+said so:
+
+- **Fullscreen is applied on *both* sides of the frame write, not only after it.**
+  The plan had one step after the frame. Entering fullscreen does belong last, since
+  the transition replaces the frame — but *leaving* it is a precondition, because a
+  fullscreen window swallows a frame write and answers `.success` for it exactly as a
+  minimized one does. Both halves are mutation-tested.
+- **A fullscreen write that lands mid-transition is accepted and does nothing.**
+  Measured while writing the round-trip test, which timed out at 20s with the window
+  still fullscreen until it waited for the animation. `ensureFullScreen` reads the
+  state back over a 2s bound rather than trusting the write, and the fact is now in
+  CLAUDE.md.
+- **The editor's document field keeps typed text in the view, not in a binding.**
+  The plan said "a binding that rejects a value `validate()` would refuse". A text
+  field passes through every prefix of what is being typed, and `h`, `ht`, `htt` are
+  each unopenable, so a rejecting binding would erase characters as they were typed.
+  The view holds the text; the document takes only what can be opened.
+- **A plain bookmark for the nominated folder, not a security-scoped one.** SnapDesk
+  cannot be sandboxed — the App Sandbox blocks the Accessibility calls it exists for
+  — so there is no scope to reclaim and the start/stop dance would do nothing.
+
+Forward compatibility was verified rather than assumed: a standalone decode against
+the pre-feature `SavedWindow` shape confirms an older build reads a file this one
+writes, with the schema version still 1.
+
+One thing outside the code: the Accessibility grant for the test host lapsed
+mid-session into the "trusted but not applying" state CLAUDE.md describes, which
+blocked `AXWindowTests` for part of Phase B. It returned on its own, and the whole
+suite including that file has since passed.
