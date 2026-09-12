@@ -96,6 +96,16 @@ enum WorkspaceDocumentReference {
         // A scheme on its own is not a location: "https:" parses cleanly and opens nothing.
         return !(url.host ?? "").isEmpty || !url.path.isEmpty
     }
+
+    /// The URL restore should hand to LaunchServices, or nil for a value that must not get there.
+    /// The same check `isUsable` applies, so nothing can be opened that could not be saved.
+    static func url(for text: String) -> URL? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isUsable(trimmed) else { return nil }
+        // A bare absolute path is a file, and `URL(string:)` would give it no scheme at all.
+        if trimmed.hasPrefix("/") { return URL(fileURLWithPath: trimmed) }
+        return URL(string: trimmed)
+    }
 }
 
 /// Version of the on-disk schema. A distinct type is what keeps callers from stamping a document

@@ -197,6 +197,15 @@ enum HelpContent {
                     detail: "macOS refused to open the app. Check that it opens normally from Finder."
                 ),
                 Entry(
+                    term: SlotFailure.documentFailed.displayText,
+                    detail: """
+                    The app opened, but the page or file the window had is no longer there — a file \
+                    that has moved or been renamed, or an address the app would not take. The app \
+                    itself is fine; clear the Document field on that row to restore the window \
+                    without it.
+                    """
+                ),
+                Entry(
                     term: SlotFailure.launchTimedOut.displayText,
                     detail: """
                     The app took more than ten seconds to open, so SnapDesk stopped waiting rather \

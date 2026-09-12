@@ -30,6 +30,11 @@ enum SlotFailure: Equatable, Sendable, CaseIterable {
     /// take. Reported apart from `couldNotPosition` because the user would otherwise go looking
     /// for a window that is exactly where they saved it.
     case stateNotRestored
+    /// The slot named a document and the app would not open it: a file that has moved, or a URL
+    /// the app refused. Reported apart from `.launchFailed` because the app itself is fine — and
+    /// apart from `.noWindow`, which is what this used to look like after the whole window budget
+    /// had been spent waiting for a window the open never created.
+    case documentFailed
 
     var displayText: String {
         switch self {
@@ -51,6 +56,8 @@ enum SlotFailure: Equatable, Sendable, CaseIterable {
             return "Window disappeared"
         case .couldNotPosition:
             return "Could not position"
+        case .documentFailed:
+            return "Could not open document"
         case .stateNotRestored:
             return "Zoom or minimize failed"
         }
@@ -298,6 +305,7 @@ final class LaunchService {
     static let correctionWindow: Duration = .seconds(4)
 
     private let launcher: any ApplicationLaunching
+    private let documentOpener: any DocumentOpening
     private let apps: any RunningApplicationQuerying
     private let windows: any WindowCatalog
     private let placer: any WindowPlacing
@@ -316,6 +324,7 @@ final class LaunchService {
 
     init(
         launcher: any ApplicationLaunching,
+        documentOpener: any DocumentOpening = NSWorkspaceDocumentOpener(),
         apps: any RunningApplicationQuerying,
         windows: any WindowCatalog,
         placer: any WindowPlacing,
@@ -326,6 +335,7 @@ final class LaunchService {
         prohibitsMultipleInstances: @escaping (String, String) -> Bool = { _, _ in false }
     ) {
         self.launcher = launcher
+        self.documentOpener = documentOpener
         self.apps = apps
         self.windows = windows
         self.placer = placer
@@ -343,6 +353,7 @@ final class LaunchService {
         let clock = TaskClock()
         self.init(
             launcher: NSWorkspaceLauncher(),
+            documentOpener: NSWorkspaceDocumentOpener(),
             apps: NSWorkspaceRunningQuery(),
             windows: AXWindowCatalog(),
             placer: AXWindowPlacer(clock: clock),
@@ -423,7 +434,23 @@ final class LaunchService {
                 onProgress(progress)
                 return progress
             }
-            guard case .launch(let arguments, let newInstance) = action else { continue }
+            let arguments: [String]
+            let newInstance: Bool
+            /// Nil for a plain launch; the document to open otherwise. The two paths share
+            /// everything below except the one call in the middle.
+            let document: URL?
+            switch action {
+            case .reuse:
+                continue
+            case .launch(let slotArguments, let fresh):
+                arguments = slotArguments
+                newInstance = fresh
+                document = nil
+            case .openDocument(let url, let slotArguments, let fresh):
+                arguments = slotArguments
+                newInstance = fresh
+                document = url
+            }
 
             progress[index].status = .launching
             onProgress(progress)
@@ -443,7 +470,11 @@ final class LaunchService {
                 activates: false
             )
             do {
-                try await open(at: url, configuration: configuration)
+                if let document {
+                    try await openDocument(document, withApplicationAt: url, configuration: configuration)
+                } else {
+                    try await open(at: url, configuration: configuration)
+                }
                 progress[index].status = .pending
                 onProgress(progress)
             } catch {
@@ -458,16 +489,20 @@ final class LaunchService {
                 let timedOut = error is LaunchTimeoutError
                 Log.launch.error(
                     """
-                    slot \(index) could not open \(url.lastPathComponent, privacy: .public): \
+                    slot \(index) could not open \(document?.lastPathComponent ?? url.lastPathComponent, privacy: .public): \
                     \(String(describing: error), privacy: .public)
                     """
                 )
-                fail(
-                    &progress,
-                    index: index,
-                    reason: timedOut ? .launchTimedOut : .launchFailed,
-                    onProgress: onProgress
-                )
+                // A refused document is its own failure. The app is fine, so `.launchFailed` would
+                // send the user looking in the wrong place — and a timeout is still a timeout
+                // whichever call was waiting.
+                let reason: SlotFailure
+                if timedOut {
+                    reason = .launchTimedOut
+                } else {
+                    reason = document == nil ? .launchFailed : .documentFailed
+                }
+                fail(&progress, index: index, reason: reason, onProgress: onProgress)
             }
         }
 
@@ -836,8 +871,28 @@ final class LaunchService {
     /// whole restore, and the HUD's Cancel button, for those 90s. The attempt is still cancelled,
     /// for a launcher that honours it; otherwise it finishes on its own, unobserved.
     private func open(at url: URL, configuration: LaunchConfiguration) async throws {
-        let timeout = launchTimeout
         let launcher = launcher
+        try await bounded { try await launcher.openApplication(at: url, configuration: configuration) }
+    }
+
+    /// The same bounded wait, around the call that opens a document *in* an app. It needs the
+    /// identical treatment: LaunchServices can hang here exactly as it can on a plain launch, and
+    /// a Cancel has to be able to end the wait rather than sit through it.
+    private func openDocument(
+        _ document: URL,
+        withApplicationAt app: URL,
+        configuration: LaunchConfiguration
+    ) async throws {
+        let opener = documentOpener
+        try await bounded { try await opener.open(document, withApplicationAt: app, configuration: configuration) }
+    }
+
+    /// Runs `operation` against `launchTimeout`, abandoning it at the deadline rather than merely
+    /// reporting one: neither `NSWorkspace.openApplication` nor `NSWorkspace.open` observes
+    /// cancellation, so the task is raced against a timer and whichever settles first tears the
+    /// other down. `inFlightOpen` is what lets a Cancel wake the wait; see `cancel()`.
+    private func bounded(_ operation: @escaping @MainActor () async throws -> Void) async throws {
+        let timeout = launchTimeout
         let outcome = FirstOutcome()
         inFlightOpen = outcome
         defer { inFlightOpen = nil }
@@ -845,7 +900,7 @@ final class LaunchService {
             outcome.continuation = continuation
             let attempt = Task { @MainActor in
                 do {
-                    try await launcher.openApplication(at: url, configuration: configuration)
+                    try await operation()
                     outcome.resume(.success(()))
                 } catch {
                     outcome.resume(.failure(error))

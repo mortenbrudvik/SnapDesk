@@ -5,6 +5,15 @@ import Foundation
 /// as a fresh instance or not.
 enum LaunchAction: Equatable {
     case launch(arguments: [String], newInstance: Bool)
+    /// A slot that names a document. The document is opened *in* the app, which launches it when
+    /// it is not running and adds a window when it is — the one call that works both ways, where
+    /// arguments reach a new instance only.
+    ///
+    /// Every such slot opens, including the second and third of a group and including under
+    /// `moveExistingWindows`, because each open is what brings that slot's window into being.
+    /// Only the group's first slot may ask for a new instance, so three documents land as three
+    /// windows of one app rather than three copies of the app.
+    case openDocument(url: URL, arguments: [String], newInstance: Bool)
     case reuse
 }
 
@@ -41,6 +50,17 @@ enum LaunchPlanner {
             let isRunning = runningBundleIDs.contains(first.bundleIdentifier)
             for (offset, index) in indices.enumerated() {
                 let window = windows[index]
+                // A document slot is decided first and on its own terms: the open has to happen
+                // for every such slot, which is the opposite of the group rule below, where only
+                // the first slot launches.
+                if let document = window.document, let url = WorkspaceDocumentReference.url(for: document) {
+                    actions[index] = .openDocument(
+                        url: url,
+                        arguments: ArgumentTokenizer.tokenize(window.arguments),
+                        newInstance: !moveExisting && offset == 0
+                    )
+                    continue
+                }
                 if moveExisting {
                     if isRunning || offset > 0 {
                         actions[index] = .reuse

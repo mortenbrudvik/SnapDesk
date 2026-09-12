@@ -2098,6 +2098,106 @@ final class LaunchServiceTests: XCTestCase {
         XCTAssertEqual(clock.sleeps, 0)
     }
 
+    // MARK: Documents
+
+    /// The point of the whole feature. Arguments reach a *new* instance only, so a running app
+    /// ignores them; opening a document works either way, which is what lets a cold start
+    /// reproduce every window instead of the one the app felt like restoring.
+    func testASlotWithADocumentOpensItRatherThanRelyingOnTheAppsOwnSession() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [safariSlot(title: "GitHub", document: "https://example.com/docs")]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean)])
+        XCTAssertEqual(opener.opened.map(\.document.absoluteString), ["https://example.com/docs"])
+        XCTAssertEqual(opener.opened.map(\.app), [URL(fileURLWithPath: safariPath)])
+        XCTAssertTrue(
+            launcher.opens.isEmpty,
+            "opening a document launches the app on its own; a second open is wasted work"
+        )
+    }
+
+    /// Two slots of one app with two documents open two documents — exactly the case a cold start
+    /// could not reproduce before, because the app decides for itself what to restore.
+    ///
+    /// Under `moveExistingWindows` neither asks for a new instance, so the two documents land as
+    /// two windows of one app rather than as two copies of the app.
+    func testEverySlotWithADocumentGetsItsOwnOpen() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow, safariWindow2]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "GitHub", document: "https://example.com/a"),
+                    safariSlot(title: "Apple", document: "https://example.com/b"),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)])
+        XCTAssertEqual(
+            opener.opened.map(\.document.absoluteString),
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertTrue(
+            opener.opened.allSatisfy { !$0.configuration.createsNewApplicationInstance },
+            "two documents belong in one app, not in two copies of it"
+        )
+    }
+
+    /// A slot with no document behaves exactly as it did before any of this existed.
+    func testASlotWithNoDocumentStillLaunchesTheAppNormally() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean)])
+        XCTAssertTrue(opener.opened.isEmpty, "no document, no document open")
+        XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: safariPath)])
+    }
+
+    /// A refused open is a failure the user can act on — a moved file, a URL the app will not
+    /// take — and not a silent fallthrough into the window wait, which would spend the whole
+    /// eight-second budget and then report the vaguer "No window".
+    func testADocumentThatCannotBeOpenedFailsTheSlot() async {
+        struct Refused: Error {}
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        opener.openError = Refused()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [safariSlot(title: "GitHub", document: "/Users/me/gone.txt")]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.documentFailed)])
+    }
+
     func testEmptyDocumentReturnsEmptyWithoutLaunching() async {
         let launcher = FakeLauncher()
         let windows = FakeWindows()
@@ -2155,6 +2255,7 @@ final class LaunchServiceTests: XCTestCase {
     private func makeService(
         launcher: FakeLauncher,
         apps: FakeApps = FakeApps(),
+        opener: FakeDocumentOpener = FakeDocumentOpener(),
         windows: FakeWindows,
         placer: FakePlacer = FakePlacer(),
         displays: [LiveDisplay]? = nil,
@@ -2165,6 +2266,7 @@ final class LaunchServiceTests: XCTestCase {
     ) -> LaunchService {
         LaunchService(
             launcher: launcher,
+            documentOpener: opener,
             apps: apps,
             windows: windows,
             placer: placer,
@@ -2245,7 +2347,8 @@ final class LaunchServiceTests: XCTestCase {
         x: Double = 0,
         y: Double = 0,
         width: Double = 800,
-        height: Double = 900
+        height: Double = 900,
+        document: String? = nil
     ) -> SavedWindow {
         savedWindow(
             bundleIdentifier: safariID,
@@ -2256,7 +2359,8 @@ final class LaunchServiceTests: XCTestCase {
             x: x,
             y: y,
             width: width,
-            height: height
+            height: height,
+            document: document
         )
     }
 
@@ -2271,7 +2375,8 @@ final class LaunchServiceTests: XCTestCase {
         width: Double,
         height: Double,
         minimized: Bool = false,
-        zoomed: Bool = false
+        zoomed: Bool = false,
+        document: String? = nil
     ) -> SavedWindow {
         SavedWindow(
             bundleIdentifier: bundleIdentifier,
@@ -2285,6 +2390,7 @@ final class LaunchServiceTests: XCTestCase {
             height: height,
             minimized: minimized,
             zoomed: zoomed,
+            document: document,
             arguments: ""
         )
     }
@@ -2388,6 +2494,22 @@ extension MatchableWindow {
 }
 
 @MainActor
+/// Records what was opened where. Deliberately separate from `FakeLauncher`: the point of the
+/// whole feature is that these are two different calls with two different guarantees, and a test
+/// that could not tell them apart would not be testing the difference.
+private final class FakeDocumentOpener: DocumentOpening {
+    var opened: [(document: URL, app: URL, configuration: LaunchConfiguration)] = []
+    var openError: (any Error)?
+    /// Runs when an open is accepted — where a test brings the resulting window into being.
+    var onOpen: @MainActor (URL) -> Void = { _ in }
+
+    func open(_ url: URL, withApplicationAt app: URL, configuration: LaunchConfiguration) async throws {
+        if let openError { throw openError }
+        opened.append((document: url, app: app, configuration: configuration))
+        onOpen(url)
+    }
+}
+
 private final class FakeWindows: WindowCatalog {
     var windowsByBundle: [String: [MatchableWindow]]
     var requireOpenBeforeWindows = false

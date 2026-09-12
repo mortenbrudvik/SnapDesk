@@ -56,6 +56,7 @@
 		B6FF1D32162ACEAA8391EE6D /* CaptureFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEA62F7D612FF05562021D8 /* CaptureFilter.swift */; };
 		BA3F204DE701B2055BD18B21 /* LaunchPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E863B1E878A4FF42AB8079F4 /* LaunchPlannerTests.swift */; };
 		BD66B9063A4FDAED164D4D66 /* AppSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7082A4EDD1841038CF7AC261 /* AppSettingsTests.swift */; };
+		BF6D6BDFA01FF12D8932C562 /* DocumentOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2249774EB71F907BEE238BEF /* DocumentOpening.swift */; };
 		BFFE1C4753EBA46DFB9DEB63 /* AppDelegateOpenTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D59324B30FE5C912A13940 /* AppDelegateOpenTests.swift */; };
 		C7B1BBC95E3A74D583916C73 /* SettingsWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD8F38608F6993AAE5523A88 /* SettingsWindowTests.swift */; };
 		C9C2010BA80C2354E2646388 /* HotkeyCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 933369887FC6416E7E3AE65D /* HotkeyCenter.swift */; };
@@ -94,6 +95,7 @@
 		0C0F8459CC765EF8A32DADA6 /* ArgumentTokenizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgumentTokenizerTests.swift; sourceTree = "<group>"; };
 		17C3D0F97D362A66334B7F8E /* AboutPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutPanelTests.swift; sourceTree = "<group>"; };
 		183645B2A58A9D2406843FFE /* SnapDeskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapDeskApp.swift; sourceTree = "<group>"; };
+		2249774EB71F907BEE238BEF /* DocumentOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentOpening.swift; sourceTree = "<group>"; };
 		23FD5D9934A2E8455CADD66F /* MatchableWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchableWindow.swift; sourceTree = "<group>"; };
 		2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOrdering.swift; sourceTree = "<group>"; };
 		353E7E0B914DCCE493D54EA5 /* RecaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecaptureTests.swift; sourceTree = "<group>"; };
@@ -262,6 +264,7 @@
 				2B1B5DFE874CDB567A289E7D /* CaptureOrdering.swift */,
 				6F16E496C7C1DEA7D685DAE2 /* CaptureService.swift */,
 				E1B69AFD4BBDA852E8D52B79 /* DisplayMap.swift */,
+				2249774EB71F907BEE238BEF /* DocumentOpening.swift */,
 				7C7A1107C6BA889CBB744DC5 /* FramePlacement.swift */,
 				5A50E98A084D99C24F187CE7 /* LaunchPlanner.swift */,
 				A5226B0FB0E1CCF2CA1EC513 /* LaunchService.swift */,
@@ -429,6 +432,7 @@
 				F2FAF7D0AE785F372C156BCE /* CaptureOrdering.swift in Sources */,
 				FB5D4B6E9E347869DE796A08 /* CaptureService.swift in Sources */,
 				D6210A8B16110C59FFA2BC42 /* DisplayMap.swift in Sources */,
+				BF6D6BDFA01FF12D8932C562 /* DocumentOpening.swift in Sources */,
 				82A8B8FB0944E9D5AD56F16E /* EditorSession.swift in Sources */,
 				D331C1F89C88F294FE881C65 /* EditorView.swift in Sources */,
 				F9F6D92D51446C3F9D6C819D /* EditorWindow.swift in Sources */,
