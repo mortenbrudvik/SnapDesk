@@ -68,6 +68,7 @@ final class AppDelegateTests: XCTestCase {
         let hud: FakeHUD
         let recents: RecentsStore
         let recorder: Recorder
+        let shortcuts: WorkspaceShortcuts
     }
 
     private func makeFixture(trusted: Bool = true) -> Fixture {
@@ -76,10 +77,13 @@ final class AppDelegateTests: XCTestCase {
         let recorder = Recorder()
         recorder.trusted = trusted
         let recents = RecentsStore(defaults: scratchDefaults())
+        // Its own throwaway suite: under TEST_HOST, `.standard` is the shipping app's own domain.
+        let shortcuts = WorkspaceShortcuts(defaults: scratchDefaults())
         let capture = CaptureOutcome(document: makeDocument(name: "Captured"), report: .clean)
         let delegate = AppDelegate(
             dependencies: AppDelegate.Dependencies(
                 recents: recents,
+                workspaceShortcuts: shortcuts,
                 capture: { capture },
                 restorer: restorer,
                 hud: hud,
@@ -89,7 +93,14 @@ final class AppDelegateTests: XCTestCase {
             )
         )
         delegate.editorOpener = { recorder.editorOpens.append($0) }
-        return Fixture(delegate: delegate, restorer: restorer, hud: hud, recents: recents, recorder: recorder)
+        return Fixture(
+            delegate: delegate,
+            restorer: restorer,
+            hud: hud,
+            recents: recents,
+            recorder: recorder,
+            shortcuts: shortcuts
+        )
     }
 
     // MARK: Launching from a file
@@ -287,6 +298,48 @@ final class AppDelegateTests: XCTestCase {
             await Task.yield()
         }
         XCTAssertTrue(condition(), "condition never held", file: file, line: line)
+    }
+
+    // MARK: Workspace hotkeys
+
+    /// A workspace hotkey opens its workspace by exactly the path a double-clicked file takes:
+    /// the same validation, the same recents entry, the same alerts.
+    func testAWorkspaceHotkeyLaunchesTheWorkspaceBoundToItsSlot() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture()
+        fixture.shortcuts.assign(url, to: 2)
+
+        fixture.delegate.launchWorkspace(inSlot: 2)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertEqual(fixture.restorer.launched.map(\.document.name), ["Coding"])
+    }
+
+    /// An unassigned slot does nothing and says nothing. A key can be bound before a workspace
+    /// is, and beeping at the user for pressing it would be noise, not information.
+    func testAnUnassignedWorkspaceHotkeyDoesNothing() async {
+        let fixture = makeFixture()
+
+        fixture.delegate.launchWorkspace(inSlot: 0)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertTrue(fixture.restorer.launched.isEmpty)
+        XCTAssertTrue(fixture.recorder.alerts.isEmpty, "an unassigned slot is not an error")
+    }
+
+    /// A workspace deleted since it was bound reports the same "could not be found" alert a stale
+    /// recent does. Silence here would leave the user pressing a key that does nothing.
+    func testAWorkspaceHotkeyWhoseFileIsGoneReportsIt() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture()
+        fixture.shortcuts.assign(url, to: 1)
+        try FileManager.default.removeItem(at: url)
+
+        fixture.delegate.launchWorkspace(inSlot: 1)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertTrue(fixture.restorer.launched.isEmpty)
+        XCTAssertEqual(fixture.recorder.alerts.compactMap(\.detail), [WorkspaceOpener.missingFileDetail])
     }
 
     private func scratchDefaults() -> UserDefaults {

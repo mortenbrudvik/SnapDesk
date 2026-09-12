@@ -7,15 +7,6 @@ final class RecentsStore {
         static let paths = "recentsPaths"
     }
 
-    /// One entry as it sits in defaults: the bookmark that follows the file if it is moved, and
-    /// the path that stands in when there is no bookmark or it no longer resolves. Stored as two
-    /// parallel arrays under `Key.bookmarks` and `Key.paths` (the on-disk shape earlier builds
-    /// wrote); this is the only place that pairs them up.
-    private struct StoredRecent {
-        var path: String
-        var bookmark: Data
-    }
-
     private static let cap = 20
 
     private(set) var urls: [URL] = []
@@ -48,33 +39,20 @@ final class RecentsStore {
         persist()
     }
 
+    /// Stored as two parallel arrays under `Key.bookmarks` and `Key.paths` — the on-disk shape
+    /// earlier builds wrote, so this stays readable by them; `WorkspaceBookmark` is what pairs
+    /// them up.
     private func persist() {
-        let stored = urls.map { url -> StoredRecent in
-            do {
-                let bookmark = try url.bookmarkData(
-                    options: .minimalBookmark,
-                    includingResourceValuesForKeys: nil,
-                    relativeTo: nil
-                )
-                return StoredRecent(path: url.path, bookmark: bookmark)
-            } catch {
-                // The entry stays in the list on its path alone: it still opens, it just stops
-                // following the file if the user moves or renames it.
-                Log.app.error(
-                    "no bookmark for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
-                return StoredRecent(path: url.path, bookmark: Data())
-            }
-        }
+        let stored = urls.map(WorkspaceBookmark.make(for:))
         defaults.set(stored.map(\.bookmark), forKey: Key.bookmarks)
         defaults.set(stored.map(\.path), forKey: Key.paths)
     }
 
-    private static func stored(in defaults: UserDefaults) -> [StoredRecent] {
+    private static func stored(in defaults: UserDefaults) -> [WorkspaceBookmark] {
         let bookmarks = defaults.array(forKey: Key.bookmarks) as? [Data] ?? []
         let paths = defaults.array(forKey: Key.paths) as? [String] ?? []
         return (0..<max(bookmarks.count, paths.count)).map { i in
-            StoredRecent(
+            WorkspaceBookmark(
                 path: i < paths.count ? paths[i] : "",
                 bookmark: i < bookmarks.count ? bookmarks[i] : Data()
             )
@@ -86,7 +64,7 @@ final class RecentsStore {
         var needsRewrite = false
 
         for entry in stored(in: defaults) {
-            if let resolved = resolve(entry, needsRewrite: &needsRewrite) {
+            if let resolved = entry.resolve(needsRewrite: &needsRewrite) {
                 result.append(resolved)
             }
         }
@@ -110,32 +88,6 @@ final class RecentsStore {
         }
 
         return (result, needsRewrite)
-    }
-
-    /// The bookmark first, because it follows a file the user has moved or renamed; the path only
-    /// when there is no bookmark or it no longer resolves.
-    private static func resolve(_ entry: StoredRecent, needsRewrite: inout Bool) -> URL? {
-        if !entry.bookmark.isEmpty {
-            var isStale = false
-            if let resolved = try? URL(
-                resolvingBookmarkData: entry.bookmark,
-                options: [.withoutUI],
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                // A stale bookmark still resolved, but macOS is saying this copy of it will not
-                // keep working; the resolved URL is exactly what a fresh one is made from.
-                needsRewrite = needsRewrite || isStale
-                return resolved
-            }
-            // Not silent: from here on this entry no longer follows the file, and if the file is
-            // gone the row will say "could not be found" on every click until it is removed.
-            Log.app.notice(
-                "the bookmark for \(entry.path, privacy: .public) no longer resolves; keeping the entry by path"
-            )
-        }
-        guard !entry.path.isEmpty else { return nil }
-        return URL(fileURLWithPath: entry.path)
     }
 
     private static func sameFile(_ a: URL, _ b: URL) -> Bool {

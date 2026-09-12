@@ -127,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     @MainActor
     struct Dependencies {
         var recents: RecentsStore
+        var workspaceShortcuts: WorkspaceShortcuts
         var capture: @MainActor () -> CaptureOutcome
         var restorer: any WorkspaceRestoring
         var hud: any LaunchHUDPresenting
@@ -140,6 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             let captureService = CaptureService()
             return Dependencies(
                 recents: RecentsStore(),
+                workspaceShortcuts: WorkspaceShortcuts(),
                 capture: { captureService.capture() },
                 restorer: LaunchService(),
                 hud: LaunchHUDController(),
@@ -226,7 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         )
         hotkeys = HotkeyCenter(
             capturing: self,
-            onEditor: { [weak self] in self?.editorOpener(nil) }
+            onEditor: { [weak self] in self?.editorOpener(nil) },
+            onWorkspace: { [weak self] slot in self?.launchWorkspace(inSlot: slot) }
         )
         hotkeys?.start()
         Log.app.info("launched: trusted=\(AccessibilityAuth.isTrusted) effective=\(AccessibilityAuth.isEffectivelyTrusted)")
@@ -268,6 +271,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
             return .terminateCancel
         }
         return .terminateNow
+    }
+
+    /// Opens the workspace bound to a hotkey slot.
+    ///
+    /// Goes through `launch(url:)` rather than repeating any of it, so a workspace opened by a
+    /// key gets the same trust check, the same validation, the same recents entry and the same
+    /// "could not be found" alert as one opened from Finder.
+    func launchWorkspace(inSlot slot: Int) {
+        guard let url = dependencies.workspaceShortcuts.workspace(for: slot) else {
+            // Not an error: a key can be bound before a workspace is assigned to it.
+            Log.hotkeys.notice("workspace slot \(slot) has no workspace assigned")
+            return
+        }
+        launch(url: url)
     }
 
     func launch(url: URL) {

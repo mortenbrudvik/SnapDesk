@@ -100,4 +100,102 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(fake.unregisterCalls, 1)
         XCTAssertFalse(settings.launchAtLogin)
     }
+
+    // MARK: Workspace shortcuts
+
+    private func scratchDefaults() -> UserDefaults {
+        let name = "com.brudvik.snapdesk.tests.shortcuts.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        addTeardownBlock { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
+        return defaults
+    }
+
+    /// A real file on disk, because a bookmark cannot be made for one that does not exist.
+    private func writeWorkspaceFile(named name: String = "Coding") throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("snapdesk-shortcuts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("\(name).snapdesk")
+        try Data("{}".utf8).write(to: url)
+        return url
+    }
+
+    func testASlotStartsEmptyAndAnAssignmentSurvivesAReload() throws {
+        let defaults = scratchDefaults()
+        let url = try writeWorkspaceFile()
+        let shortcuts = WorkspaceShortcuts(defaults: defaults)
+
+        XCTAssertNil(shortcuts.workspace(for: 0))
+
+        shortcuts.assign(url, to: 0)
+        XCTAssertEqual(shortcuts.workspace(for: 0)?.resolvingSymlinksInPath(), url.resolvingSymlinksInPath())
+
+        let reloaded = WorkspaceShortcuts(defaults: defaults)
+        XCTAssertEqual(reloaded.workspace(for: 0)?.resolvingSymlinksInPath(), url.resolvingSymlinksInPath())
+    }
+
+    func testClearingASlotRemovesTheBinding() throws {
+        let defaults = scratchDefaults()
+        let url = try writeWorkspaceFile()
+        let shortcuts = WorkspaceShortcuts(defaults: defaults)
+        shortcuts.assign(url, to: 2)
+        XCTAssertNotNil(shortcuts.workspace(for: 2))
+
+        shortcuts.assign(nil, to: 2)
+
+        XCTAssertNil(shortcuts.workspace(for: 2))
+        XCTAssertNil(WorkspaceShortcuts(defaults: defaults).workspace(for: 2), "and it stays cleared")
+    }
+
+    /// Assigning one slot must not disturb another: they are five independent bindings stored
+    /// side by side.
+    func testSlotsAreIndependentOfEachOther() throws {
+        let defaults = scratchDefaults()
+        let first = try writeWorkspaceFile(named: "First")
+        let last = try writeWorkspaceFile(named: "Last")
+        let shortcuts = WorkspaceShortcuts(defaults: defaults)
+
+        shortcuts.assign(first, to: 0)
+        shortcuts.assign(last, to: WorkspaceShortcuts.slotCount - 1)
+
+        XCTAssertEqual(shortcuts.workspace(for: 0)?.lastPathComponent, "First.snapdesk")
+        XCTAssertEqual(shortcuts.workspace(for: WorkspaceShortcuts.slotCount - 1)?.lastPathComponent, "Last.snapdesk")
+        for slot in 1..<(WorkspaceShortcuts.slotCount - 1) {
+            XCTAssertNil(shortcuts.workspace(for: slot))
+        }
+    }
+
+    /// The bookmark is what makes this worth more than storing a path: a workspace the user
+    /// renames keeps its hotkey. Without it the slot would point at a file that is gone and the
+    /// key would start reporting "could not be found".
+    func testAnAssignedWorkspaceIsStillFoundAfterItIsRenamed() throws {
+        let defaults = scratchDefaults()
+        let url = try writeWorkspaceFile(named: "Before")
+        let shortcuts = WorkspaceShortcuts(defaults: defaults)
+        shortcuts.assign(url, to: 1)
+
+        let renamed = url.deletingLastPathComponent().appendingPathComponent("After.snapdesk")
+        try FileManager.default.moveItem(at: url, to: renamed)
+
+        let reloaded = WorkspaceShortcuts(defaults: defaults)
+        XCTAssertEqual(reloaded.workspace(for: 1)?.lastPathComponent, "After.snapdesk")
+    }
+
+    /// A slot index from outside the fixed range is ignored rather than trapping: the value can
+    /// reach here from a stored preference an older or newer build wrote.
+    func testAnOutOfRangeSlotIsIgnored() throws {
+        let defaults = scratchDefaults()
+        let url = try writeWorkspaceFile()
+        let shortcuts = WorkspaceShortcuts(defaults: defaults)
+
+        shortcuts.assign(url, to: WorkspaceShortcuts.slotCount)
+        shortcuts.assign(url, to: -1)
+
+        XCTAssertNil(shortcuts.workspace(for: WorkspaceShortcuts.slotCount))
+        XCTAssertNil(shortcuts.workspace(for: -1))
+        for slot in 0..<WorkspaceShortcuts.slotCount {
+            XCTAssertNil(shortcuts.workspace(for: slot), "nothing may have been written into a real slot")
+        }
+    }
 }
