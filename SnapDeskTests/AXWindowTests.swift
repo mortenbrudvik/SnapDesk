@@ -285,6 +285,7 @@ final class AXWindowTests: XCTestCase {
         // `false` and was written into the saved workspace as real window state.
         XCTAssertNil(ax.minimizedState)
         XCTAssertNil(ax.zoomedState)
+        XCTAssertNil(ax.fullscreenState)
         XCTAssertFalse(ax.isMinimized, "the lossy accessors stay available for throwaway decisions")
         XCTAssertFalse(ax.isZoomed)
     }
@@ -535,5 +536,56 @@ final class AXWindowTests: XCTestCase {
             .success,
             "an unknown state is not the confirmed 'nothing to do' that skips the press"
         )
+    }
+
+    // MARK: Fullscreen
+
+    /// Fullscreen is the opposite case to zoom, and the reason this test is worth its cost.
+    /// There is no `AXZoomed` — reading it returns `kAXErrorAttributeUnsupported` and the string
+    /// is in no framework — so zoom has to be inferred from the frame. `AXFullScreen` *does*
+    /// exist, measured present on every window probed, so it is read and written directly. This
+    /// is the round trip that holds that claim to a real window rather than to a probe I ran
+    /// once.
+    func testFullscreenRoundTripsOnOurWindow() throws {
+        // Fullscreen needs a window the user could put there themselves, which means a regular
+        // app: the host is LSUIElement, the same reason the minimize test changes policy.
+        let policy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        addTeardownBlock { @MainActor in NSApp.setActivationPolicy(policy) }
+
+        let window = makeWindow()
+        window.collectionBehavior.insert(.fullScreenPrimary)
+        // Registered after `makeWindow`'s close block, so it runs *before* it: teardown is LIFO.
+        // Closing a window mid-transition leaves the Space behind it on screen, and a test host
+        // stranded on a Space of its own takes every later test in the run with it.
+        addTeardownBlock { @MainActor in
+            guard window.styleMask.contains(.fullScreen) else { return }
+            window.toggleFullScreen(nil)
+            let deadline = Date().addingTimeInterval(10)
+            while window.styleMask.contains(.fullScreen), Date() < deadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            }
+        }
+
+        let ax = try axWindow(for: window)
+        // Already the assertion that would have caught `AXZoomed`: an attribute that does not
+        // exist reads as nil here, not as false.
+        XCTAssertEqual(ax.fullscreenState, false)
+
+        XCTAssertEqual(ax.setFullScreen(true), .success)
+        // The transition animates, and 5s is not always enough for it on a busy machine.
+        waitUntil("the window to enter fullscreen", timeout: 20) { ax.fullscreenState == true }
+        XCTAssertTrue(window.styleMask.contains(.fullScreen), "AppKit and Accessibility must agree")
+
+        // Measured: the attribute flips as soon as the transition *starts*, and a write that
+        // lands before it finishes is accepted — `.success` — and then silently does nothing.
+        // Without this wait the exit below timed out at 20s with the window still fullscreen.
+        // The same hazard the zoom tests settle for, and the reason placement cannot trust a
+        // successful write either.
+        settle(1.5)
+
+        XCTAssertEqual(ax.setFullScreen(false), .success)
+        waitUntil("the window to leave fullscreen", timeout: 20) { ax.fullscreenState == false }
+        XCTAssertFalse(window.styleMask.contains(.fullScreen))
     }
 }
