@@ -102,6 +102,7 @@ private struct EditorSplitView: View {
                                 Button("Launch") { onLaunchWorkspace(item.url) }
                                     .buttonStyle(.borderless)
                                     .font(.caption)
+                                    .help("Restore this workspace from its file")
                             }
                             .tag(item.id)
                             .contentShape(Rectangle())
@@ -113,6 +114,16 @@ private struct EditorSplitView: View {
             .onChange(of: host.selectedRecentID) { _, newID in
                 guard let newID, let item = host.recents.first(where: { $0.id == newID }) else { return }
                 onSelectRecent(item.url)
+            }
+
+            if let notice = host.folderNotice {
+                // The setting is kept — the volume may come back — and the list falls back to
+                // recents; without this line that looks like an empty folder.
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
             }
 
             Divider()
@@ -163,6 +174,7 @@ private struct EditorSplitView: View {
 
             HStack {
                 Button("Launch", action: onLaunch)
+                    .help("Restore the workspace as it is in the editor, unsaved changes included")
                 Spacer()
                 Button("Save", action: onSave)
                     .keyboardShortcut("s", modifiers: .command)
@@ -256,19 +268,25 @@ private struct WindowSlotRow: View {
             }
 
             HStack {
-                Toggle("Minimized", isOn: $window.minimized)
+                Toggle("Minimized", isOn: WindowStateToggles.minimized($window))
                 Toggle("Zoomed", isOn: $window.zoomed)
-                Toggle("Fullscreen", isOn: WindowFullscreenField.binding($window.fullscreen))
+                Toggle("Fullscreen", isOn: WindowStateToggles.fullscreen($window))
             }
 
             // The typed text lives here rather than in the document, so a half-typed URL stays
-            // on screen while `WindowDocumentField` keeps it out of the file.
+            // on screen while `WindowDocumentField` keeps it out of the file — and the caption
+            // says so, or the field would show one thing while the file held another.
             TextField("Document or URL", text: $documentText)
                 .textFieldStyle(.roundedBorder)
                 .onAppear { documentText = window.document ?? "" }
                 .onChange(of: documentText) { _, typed in
                     WindowDocumentField.apply(typed, to: &window.document)
                 }
+            if let notice = WindowDocumentField.notice(for: documentText) {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
 
             TextField("Arguments", text: $window.arguments)
                 .textFieldStyle(.roundedBorder)
@@ -334,19 +352,47 @@ enum WindowDocumentField {
             break
         }
     }
+
+    /// What to say under the field while it holds text that is not stored. The last good value
+    /// stands, and the user has to be able to see that this text is not it — including while a
+    /// URL is still being typed, which is over as soon as it can be opened.
+    static func notice(for text: String) -> String? {
+        guard commit(text) == .ignore else { return nil }
+        return "Not a page or file SnapDesk can open, so it is not saved."
+    }
 }
 
-/// The Fullscreen toggle of a window row. The stored field is `Bool?` and the toggle is `Bool`,
-/// and the missing third state is the point: nil means the workspace was written before fullscreen
-/// was recorded, which restore reads as "leave this window alone" rather than as false. A
-/// two-state toggle has nowhere to show that, so it displays nil as off — and a write always
-/// records an explicit value, because a user reaching for the toggle is an intent where an
-/// untouched old file is not.
-enum WindowFullscreenField {
-    static func binding(_ source: Binding<Bool?>) -> Binding<Bool> {
+/// The Minimized and Fullscreen toggles of a window row, which cannot both be on: a fullscreen
+/// window has no minimize button, and restore would fail the slot for a state it could never
+/// reach. Turning one on turns the other off.
+///
+/// Fullscreen's stored field is `Bool?` and the toggle is `Bool`, and the missing third state is
+/// the point: nil means the workspace was written before fullscreen was recorded, which restore
+/// reads as "leave this window alone" rather than as false. A two-state toggle has nowhere to
+/// show that, so it displays nil as off — and a write always records an explicit value, because
+/// a user reaching for the toggle is an intent where an untouched old file is not.
+enum WindowStateToggles {
+    static func minimized(_ window: Binding<SavedWindow>) -> Binding<Bool> {
         Binding(
-            get: { source.wrappedValue ?? false },
-            set: { source.wrappedValue = $0 }
+            get: { window.wrappedValue.minimized },
+            set: { on in
+                window.wrappedValue.minimized = on
+                if on, window.wrappedValue.fullscreen == true {
+                    window.wrappedValue.fullscreen = false
+                }
+            }
+        )
+    }
+
+    static func fullscreen(_ window: Binding<SavedWindow>) -> Binding<Bool> {
+        Binding(
+            get: { window.wrappedValue.fullscreen ?? false },
+            set: { on in
+                window.wrappedValue.fullscreen = on
+                if on {
+                    window.wrappedValue.minimized = false
+                }
+            }
         )
     }
 }

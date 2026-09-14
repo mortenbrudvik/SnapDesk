@@ -25,6 +25,10 @@ protocol EditorPrompting: AnyObject {
     func saveDestination(suggestedName: String) -> URL?
     /// `title` says what SnapDesk failed to do; `detail` carries the file and the underlying reason.
     func report(title: String, detail: String?)
+    /// The folder the sidebar should list, or nil for Cancel.
+    func chooseFolder(message: String) -> URL?
+    /// Whether the user confirmed moving the named file to the Trash.
+    func confirmTrash(fileName: String) -> Bool
 }
 
 @MainActor
@@ -65,10 +69,36 @@ final class AppKitEditorPrompt: EditorPrompting {
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
+
+    func chooseFolder(message: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = message
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.urls.first
+    }
+
+    func confirmTrash(fileName: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Move “\(fileName)” to the Trash?"
+        alert.informativeText = """
+        It will also be removed from Recents, and from any hotkey or startup setting that used it.
+        """
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 }
 
 /// Remembers the workspace name behind each recent file, keyed on the file's modification date,
-/// so the sidebar is not re-reading and re-decoding up to twenty documents on the main thread
+/// so the sidebar is not re-reading and re-decoding every listed workspace — twenty recents, or
+/// a whole folder of them — on the main thread
 /// every time the window becomes key. A file whose date cannot be read is read every time: a
 /// missing date is not evidence that nothing changed.
 @MainActor
@@ -96,6 +126,9 @@ final class EditorHost: ObservableObject {
     @Published var recents: [EditorRecentItem] = []
     /// Whether a folder has been nominated, so the sidebar can offer Choose or Change.
     @Published var hasWorkspaceFolder = false
+    /// Shown under the list when the nominated folder cannot be read right now — unplugged,
+    /// renamed, deleted. Nil while it lists, or when there is none.
+    @Published var folderNotice: String?
     @Published var selectedRecentID: String?
     @Published var selectedWindowIndex: Int?
 
@@ -126,6 +159,9 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
     private let capture: () -> CaptureOutcome?
     private let launch: (WorkspaceDocument) -> Void
     private let launchFile: (URL) -> Void
+    /// Every store that could still point at a file the editor has moved to the Trash; see
+    /// `moveToTrash`.
+    private let forgetWorkspace: (URL) -> Void
     private let prompt: any EditorPrompting
     private let beep: @MainActor () -> Void
     let host: EditorHost
@@ -138,16 +174,18 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
 
     init(
         recents: RecentsStore,
-        library: WorkspaceLibrary = WorkspaceLibrary(),
+        library: WorkspaceLibrary,
         capture: @escaping () -> CaptureOutcome?,
         launch: @escaping (WorkspaceDocument) -> Void,
-        launchFile: @escaping (URL) -> Void = { _ in },
+        launchFile: @escaping (URL) -> Void,
+        forgetWorkspace: @escaping (URL) -> Void,
         prompt: any EditorPrompting = AppKitEditorPrompt(),
         beep: @escaping @MainActor () -> Void = { NSSound.beep() }
     ) {
         self.recents = recents
         self.library = library
         self.launchFile = launchFile
+        self.forgetWorkspace = forgetWorkspace
         self.capture = capture
         self.launch = launch
         self.prompt = prompt
@@ -410,19 +448,16 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    private func moveToTrash() {
+    /// Trashes the selected workspace, or the open one. Recents, the hotkey slots, the startup
+    /// setting and the library all let go of it: measured, a bookmark follows a file into the
+    /// Trash, so any of them left pointing at it would keep restoring the workspace from there.
+    func moveToTrash() {
         guard let url = targetURL() else { return }
-        let alert = NSAlert()
-        alert.messageText = "Move “\(url.lastPathComponent)” to the Trash?"
-        alert.informativeText = "This file will also be removed from Recents."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Move to Trash")
-        alert.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        guard presenting({ alert.runModal() }) == .alertFirstButtonReturn else { return }
+        guard presenting({ prompt.confirmTrash(fileName: url.lastPathComponent) }) else { return }
         do {
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
             recents.remove(url)
+            forgetWorkspace(url)
             if sameFile(url, host.session.fileURL) {
                 replaceSession(
                     EditorSession(
@@ -563,10 +598,17 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         beep()
     }
 
-    /// The sidebar list: the nominated folder merged with recents, ordered by the library. With
-    /// no folder chosen this is exactly the recents list, which is what it was before.
+    /// The sidebar list: the nominated folder merged with recents, ordered by the library — most
+    /// recently restored first, then by name. With no folder chosen that is the recents list as a
+    /// set, in this order rather than the store's most-recently-opened one.
     private func refreshRecents() {
-        host.hasWorkspaceFolder = library.folder != nil
+        let availability = library.folderAvailability()
+        host.hasWorkspaceFolder = availability != .none
+        if case .unavailable(let folder) = availability {
+            host.folderNotice = "Folder not found: \(folder.lastPathComponent)"
+        } else {
+            host.folderNotice = nil
+        }
         host.recents = library.listing(recents: recents.urls).map { row in
             let modified = try? row.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
             let name = recentNames.name(for: row.url, modified: modified) {
@@ -583,15 +625,13 @@ final class EditorWindowController: NSWindowController, NSWindowDelegate {
         syncRecentSelection()
     }
 
-    /// Nominates the folder the sidebar lists alongside recents.
+    /// Nominates the folder the sidebar lists alongside recents. The panel runs under
+    /// `presenting` like every other modal here: a Capture hotkey arriving while it is up is
+    /// refused rather than replacing the session underneath it.
     func chooseWorkspaceFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "Choose the folder your workspaces live in."
-        guard panel.runModal() == .OK, let url = panel.urls.first else { return }
+        guard let url = presenting({
+            prompt.chooseFolder(message: "Choose the folder your workspaces live in.")
+        }) else { return }
         library.folder = url
         refreshRecents()
     }

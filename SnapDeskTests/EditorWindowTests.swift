@@ -355,8 +355,6 @@ final class EditorWindowTests: XCTestCase {
         XCTAssertEqual(try WorkspaceDocument.load(from: url).windows[0].width, 100, "the saved file must be untouched")
     }
 
-    /// The row's W and H fields commit through this binding. They used to take a 0 or a negative
-    /// side straight into the document, which then could not be saved or relaunched.
     /// The field has to keep an unopenable value out of the document, for the reason
     /// `WindowSizeField` does: `validate()` runs on save, and a user who can type their way into a
     /// state the Save button then refuses has been led there by the editor.
@@ -410,21 +408,52 @@ final class EditorWindowTests: XCTestCase {
     /// it reads nil as off — and a write always records an explicit value, because the user
     /// reaching for the toggle is an intent where an untouched old file is not.
     func testTheFullscreenToggleReadsNilAsOffAndWritesAnExplicitValue() {
-        var stored: Bool?
-        let binding = WindowFullscreenField.binding(
-            Binding(get: { stored }, set: { stored = $0 })
-        )
+        var window = savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")
+        let binding = WindowStateToggles.fullscreen(Binding(get: { window }, set: { window = $0 }))
 
         XCTAssertFalse(binding.wrappedValue, "nil is shown as off")
-        XCTAssertNil(stored, "showing the row must not record a value")
+        XCTAssertNil(window.fullscreen, "showing the row must not record a value")
 
         binding.wrappedValue = true
-        XCTAssertEqual(stored, true)
+        XCTAssertEqual(window.fullscreen, true)
 
         binding.wrappedValue = false
-        XCTAssertEqual(stored, false, "switching it off records false rather than reverting to nil")
+        XCTAssertEqual(window.fullscreen, false, "switching it off records false rather than reverting to nil")
     }
 
+    /// A fullscreen window has no minimize button, so the two toggles cannot both be on: the file
+    /// would hold a state restore then fails the slot for.
+    func testTurningFullscreenOnTurnsMinimizedOffAndViceVersa() {
+        var window = savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")
+        let binding = Binding(get: { window }, set: { window = $0 })
+
+        WindowStateToggles.minimized(binding).wrappedValue = true
+        XCTAssertTrue(window.minimized)
+
+        WindowStateToggles.fullscreen(binding).wrappedValue = true
+        XCTAssertEqual(window.fullscreen, true)
+        XCTAssertFalse(window.minimized, "fullscreen wins over minimized")
+
+        WindowStateToggles.minimized(binding).wrappedValue = true
+        XCTAssertTrue(window.minimized)
+        XCTAssertEqual(window.fullscreen, false, "minimized wins over fullscreen")
+    }
+
+    /// A value the field will not store has to be visible as such, or the field shows one thing
+    /// while the file holds another and Save quietly keeps the old value.
+    func testTheDocumentFieldSaysWhenTypedTextIsNotStored() {
+        XCTAssertNil(WindowDocumentField.notice(for: ""))
+        XCTAssertNil(WindowDocumentField.notice(for: "https://example.com"))
+        XCTAssertNil(WindowDocumentField.notice(for: "/Users/me/notes.txt"))
+        XCTAssertNotNil(WindowDocumentField.notice(for: "not a url"))
+        XCTAssertNotNil(
+            WindowDocumentField.notice(for: "h"),
+            "a half-typed URL is not stored either, and the caption says so until it is"
+        )
+    }
+
+    /// The row's W and H fields commit through this binding. They used to take a 0 or a negative
+    /// side straight into the document, which then could not be saved or relaunched.
     func testTheWindowSizeFieldClampsANonPositiveSideBeforeItReachesTheDocument() {
         let controller = makeController(prompt: FakePrompt())
         controller.open(
@@ -660,6 +689,26 @@ final class EditorWindowTests: XCTestCase {
 
         func saveDestination(suggestedName: String) -> URL? { destination }
 
+        var folderChoice: URL?
+        private(set) var folderPrompts: [String] = []
+        /// Runs inside `chooseFolder`, standing in for whatever the run loop delivers while a real
+        /// `NSOpenPanel` is modal — a global hotkey handler, above all.
+        var whileFolderPanelIsUp: (() -> Void)?
+
+        func chooseFolder(message: String) -> URL? {
+            folderPrompts.append(message)
+            whileFolderPanelIsUp?()
+            return folderChoice
+        }
+
+        var trashConfirmed = false
+        private(set) var trashPrompts: [String] = []
+
+        func confirmTrash(fileName: String) -> Bool {
+            trashPrompts.append(fileName)
+            return trashConfirmed
+        }
+
         func report(title: String, detail: String?) {
             reports.append(Report(title: title, detail: detail))
         }
@@ -676,7 +725,8 @@ final class EditorWindowTests: XCTestCase {
         beep: @escaping @MainActor () -> Void = {},
         recents: RecentsStore? = nil,
         library: WorkspaceLibrary? = nil,
-        launchFile: @escaping (URL) -> Void = { _ in }
+        launchFile: @escaping (URL) -> Void = { _ in },
+        forgetWorkspace: @escaping (URL) -> Void = { _ in }
     ) -> EditorWindowController {
         let controller = EditorWindowController(
             recents: recents ?? RecentsStore(defaults: scratchDefaults()),
@@ -684,6 +734,7 @@ final class EditorWindowTests: XCTestCase {
             capture: capture,
             launch: { _ in },
             launchFile: launchFile,
+            forgetWorkspace: forgetWorkspace,
             prompt: prompt,
             beep: beep
         )
@@ -696,6 +747,14 @@ final class EditorWindowTests: XCTestCase {
             .appendingPathComponent("coding-\(UUID().uuidString).snapdesk")
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
+    }
+
+    private func scratchFolder() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snapdesk-editor-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return directory
     }
 
     private func threeWindows() -> [SavedWindow] {
@@ -784,8 +843,8 @@ final class EditorWindowTests: XCTestCase {
         XCTAssertTrue(controller.host.hasWorkspaceFolder)
     }
 
-    /// With no folder chosen the sidebar is exactly the recents list, which is what it was before
-    /// the library existed.
+    /// With no folder chosen the sidebar holds exactly the recents — the same set as before the
+    /// library existed; its order is the library's, pinned separately.
     func testWithNoFolderTheSidebarIsStillJustRecents() throws {
         let recentURL = temporaryWorkspaceURL()
         try makeDocument(name: "Elsewhere", windows: []).encoded().write(to: recentURL)
@@ -817,6 +876,148 @@ final class EditorWindowTests: XCTestCase {
         controller.launchSelectedWorkspace(recentURL)
 
         XCTAssertEqual(launched, [recentURL])
+    }
+
+    /// The sidebar's order is the library's — most recently restored first, then by name — even
+    /// with no folder chosen, which is not the recents store's most-recently-opened order. Two
+    /// entries, because one cannot tell the two orders apart.
+    func testWithNoFolderTheSidebarHoldsTheRecentsOrderedByLastRestore() throws {
+        let restored = temporaryWorkspaceURL()
+        let opened = temporaryWorkspaceURL()
+        try makeDocument(name: "Restored", windows: []).encoded().write(to: restored)
+        try makeDocument(name: "Opened", windows: []).encoded().write(to: opened)
+        let recents = RecentsStore(defaults: scratchDefaults())
+        recents.add(restored)
+        recents.add(opened)
+        let library = WorkspaceLibrary(defaults: scratchDefaults())
+        library.recordLaunch(of: restored)
+        let controller = makeController(prompt: FakePrompt(), recents: recents, library: library)
+        controller.showWindow(nil)
+
+        XCTAssertEqual(
+            recents.urls.map(\.lastPathComponent),
+            [opened.lastPathComponent, restored.lastPathComponent],
+            "the store keeps most-recently-opened order"
+        )
+        XCTAssertEqual(
+            controller.host.recents.map(\.name),
+            ["Restored", "Opened"],
+            "the sidebar shows the restored one first"
+        )
+    }
+
+    // MARK: Modals the sidebar raises
+
+    /// The folder panel is a modal like the save prompt, and the PR #1 fix applies to it for the
+    /// same reason: global hot keys keep firing while `runModal` spins the run loop, and a Capture
+    /// arriving then replaced the session underneath the panel.
+    func testACaptureArrivingWhileTheFolderPanelIsUpIsRefused() throws {
+        let prompt = FakePrompt()
+        let beeps = Counter()
+        let library = WorkspaceLibrary(defaults: scratchDefaults())
+        let controller = makeController(prompt: prompt, beep: { beeps.value += 1 }, library: library)
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
+        )
+        let folder = try scratchFolder()
+        try makeDocument(name: "Writing", windows: []).encoded()
+            .write(to: folder.appendingPathComponent("Writing.snapdesk"))
+        let captured = makeDocument(
+            name: "Untitled",
+            windows: [savedWindow(bundleIdentifier: "com.apple.Preview", title: "Photo")]
+        )
+        prompt.folderChoice = folder
+        prompt.whileFolderPanelIsUp = { [weak controller] in
+            controller?.open(captured: captured)
+        }
+
+        controller.chooseWorkspaceFolder()
+
+        XCTAssertEqual(prompt.folderPrompts.count, 1)
+        XCTAssertEqual(controller.session.document.name, "Coding", "the capture must not replace the session under the panel")
+        XCTAssertEqual(beeps.value, 1, "a refused command answers the keystroke rather than dying silently")
+        XCTAssertTrue(controller.host.hasWorkspaceFolder)
+        XCTAssertEqual(library.folder?.resolvingSymlinksInPath().path, folder.resolvingSymlinksInPath().path)
+        XCTAssertTrue(controller.host.recents.map(\.filename).contains("Writing.snapdesk"))
+    }
+
+    /// Stop Listing Folder returns the sidebar to the recents it showed before a folder was chosen.
+    func testStopListingFolderReturnsTheSidebarToRecents() throws {
+        let folder = try scratchFolder()
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("Coding.snapdesk"))
+        let recentURL = temporaryWorkspaceURL()
+        try makeDocument(name: "Elsewhere", windows: []).encoded().write(to: recentURL)
+        let recents = RecentsStore(defaults: scratchDefaults())
+        recents.add(recentURL)
+        let library = WorkspaceLibrary(defaults: scratchDefaults())
+        library.folder = folder
+        let controller = makeController(prompt: FakePrompt(), recents: recents, library: library)
+        controller.showWindow(nil)
+        XCTAssertTrue(controller.host.hasWorkspaceFolder)
+
+        controller.clearWorkspaceFolder()
+
+        XCTAssertNil(library.folder)
+        XCTAssertFalse(controller.host.hasWorkspaceFolder)
+        XCTAssertEqual(controller.host.recents.map(\.filename), [recentURL.lastPathComponent])
+    }
+
+    /// A folder that cannot be read — unplugged, renamed, deleted — is said so under the list.
+    /// Without it the sidebar looks like an empty folder, and half the user's workspaces are
+    /// simply gone with nothing to explain it.
+    func testAnUnreadableFolderShowsANoticeInTheSidebar() throws {
+        let folder = try scratchFolder()
+        try Data("{}".utf8).write(to: folder.appendingPathComponent("Coding.snapdesk"))
+        let library = WorkspaceLibrary(defaults: scratchDefaults())
+        library.folder = folder
+        try FileManager.default.removeItem(at: folder)
+        let controller = makeController(prompt: FakePrompt(), library: library)
+        controller.showWindow(nil)
+
+        XCTAssertEqual(controller.host.folderNotice, "Folder not found: \(folder.lastPathComponent)")
+        XCTAssertTrue(controller.host.hasWorkspaceFolder, "the setting stays; the volume may come back")
+    }
+
+    /// Moving a workspace to the Trash has to reach the hotkey slots, the startup setting and the
+    /// library too: measured, a bookmark follows a file into the Trash and resolves there, so a
+    /// binding left behind would keep restoring the workspace from the Trash. Puts one file in the
+    /// real Trash for the length of the test and removes it again.
+    func testMovingToTrashForgetsTheWorkspaceEverywhere() throws {
+        let prompt = FakePrompt()
+        prompt.trashConfirmed = true
+        var forgotten: [URL] = []
+        let controller = makeController(prompt: prompt, forgetWorkspace: { forgotten.append($0) })
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trash-me-\(UUID().uuidString).snapdesk")
+        // The home Trash: the temporary directory is on the boot volume, and the file does not
+        // exist yet, which `appropriateFor:` would need.
+        let trash = try FileManager.default.url(
+            for: .trashDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: false
+        )
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: trash.appendingPathComponent(url.lastPathComponent))
+        }
+        controller.open(
+            captured: makeDocument(
+                name: "Coding",
+                windows: [savedWindow(bundleIdentifier: "com.apple.Safari", title: "GitHub")]
+            )
+        )
+        try controller.session.save(to: url)
+
+        controller.moveToTrash()
+
+        XCTAssertEqual(prompt.trashPrompts, [url.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "the file was trashed")
+        XCTAssertEqual(forgotten.map(\.path), [url.path])
+        XCTAssertNil(controller.session.fileURL, "the session no longer points at a trashed file")
     }
 }
 

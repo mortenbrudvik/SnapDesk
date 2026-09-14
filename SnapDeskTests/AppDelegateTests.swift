@@ -14,6 +14,8 @@ final class AppDelegateTests: XCTestCase {
         private(set) var cancelCount = 0
         /// Parks every launch until `releaseAll()`, so a second restore can be queued behind it.
         var parkLaunches = false
+        /// What every slot ends as; `.cancelled` stands in for a restore the user stopped.
+        var outcome: SlotStatus = .placed(.clean)
         private var parked: [CheckedContinuation<Void, Never>] = []
 
         func launch(
@@ -25,7 +27,7 @@ final class AppDelegateTests: XCTestCase {
                 await withCheckedContinuation { parked.append($0) }
             }
             let result = workspace.document.windows.enumerated().map { index, window in
-                SlotProgress(index: index, name: window.name, status: .placed(.clean))
+                SlotProgress(index: index, name: window.name, status: outcome)
             }
             onProgress(result)
             return result
@@ -60,6 +62,8 @@ final class AppDelegateTests: XCTestCase {
         var refusals: [String] = []
         var trusted = true
         var editorOpens: [CaptureOutcome?] = []
+        var forgottenStartup: [URL] = []
+        var beeps = 0
     }
 
     private struct Fixture {
@@ -88,11 +92,13 @@ final class AppDelegateTests: XCTestCase {
                 workspaceShortcuts: shortcuts,
                 library: library,
                 startupWorkspace: { startupWorkspace },
+                forgetStartupWorkspace: { recorder.forgottenStartup.append($0) },
                 capture: { capture },
                 restorer: restorer,
                 hud: hud,
                 accessibilityTrusted: { recorder.trusted },
                 refuseUntrusted: { recorder.refusals.append($0) },
+                beep: { recorder.beeps += 1 },
                 presentAlert: { title, detail in recorder.alerts.append((title, detail)) }
             )
         )
@@ -319,6 +325,20 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertNotNil(fixture.library.lastLaunched(url))
     }
 
+    /// A restore the user cancelled, or one that placed nothing, is not a restore; recording it
+    /// would put "Restored just now" on a workspace that never came back.
+    func testACancelledRestoreIsNotRecordedAsALaunch() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture()
+        fixture.restorer.outcome = .cancelled
+
+        fixture.delegate.launch(url: url)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertEqual(fixture.restorer.launched.count, 1, "the restore ran")
+        XCTAssertNil(fixture.library.lastLaunched(url))
+    }
+
     /// A workspace that failed to open was never restored, so it gets no date. Otherwise the
     /// library would sort a file the user cannot even open to the top.
     func testAWorkspaceThatFailsToOpenIsNotRecordedAsLaunched() async throws {
@@ -375,6 +395,19 @@ final class AppDelegateTests: XCTestCase {
         )
     }
 
+    /// A file the user double-clicked that is also the startup workspace is one restore, not two
+    /// — with documents, two would open every page twice.
+    func testAStartupWorkspaceThatWasAlsoDoubleClickedIsRestoredOnce() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture(startupWorkspace: url)
+
+        fixture.delegate.application(NSApp, open: [url])
+        fixture.delegate.completeLaunch()
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertEqual(fixture.restorer.launched.map(\.document.name), ["Coding"])
+    }
+
     /// A startup workspace whose file has since been deleted reports it, rather than leaving the
     /// user to wonder why nothing came back.
     func testAStartupWorkspaceWhoseFileIsGoneReportsIt() async throws {
@@ -404,9 +437,10 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(fixture.restorer.launched.map(\.document.name), ["Coding"])
     }
 
-    /// An unassigned slot does nothing and says nothing. A key can be bound before a workspace
-    /// is, and beeping at the user for pressing it would be noise, not information.
-    func testAnUnassignedWorkspaceHotkeyDoesNothing() async {
+    /// An unassigned slot beeps and shows no alert. A key can be bound before a workspace is, so
+    /// an alert would be noise — but the beep is the one signal that SnapDesk received the key at
+    /// all, which a combination another app owns never gives.
+    func testAnUnassignedWorkspaceHotkeyBeepsButShowsNoAlert() async {
         let fixture = makeFixture()
 
         fixture.delegate.launchWorkspace(inSlot: 0)
@@ -414,6 +448,7 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertTrue(fixture.restorer.launched.isEmpty)
         XCTAssertTrue(fixture.recorder.alerts.isEmpty, "an unassigned slot is not an error")
+        XCTAssertEqual(fixture.recorder.beeps, 1, "the key was heard")
     }
 
     /// A workspace deleted since it was bound reports the same "could not be found" alert a stale
@@ -429,6 +464,40 @@ final class AppDelegateTests: XCTestCase {
 
         XCTAssertTrue(fixture.restorer.launched.isEmpty)
         XCTAssertEqual(fixture.recorder.alerts.compactMap(\.detail), [WorkspaceOpener.missingFileDetail])
+    }
+
+    /// Measured: a bookmark follows a file into the Trash. A key bound to a workspace the user then
+    /// deleted must report it missing, not restore it from the Trash. Puts one file in the real
+    /// Trash for the length of the test and removes it again.
+    func testAWorkspaceHotkeyWhoseFileWasTrashedReportsIt() async throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture()
+        fixture.shortcuts.assign(url, to: 1)
+        var trashed: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &trashed)
+        let item = trashed as URL?
+        addTeardownBlock { if let item { try? FileManager.default.removeItem(at: item) } }
+
+        fixture.delegate.launchWorkspace(inSlot: 1)
+        await fixture.delegate.launchChain?.value
+
+        XCTAssertTrue(fixture.restorer.launched.isEmpty, "a trashed workspace must not be restored from the Trash")
+        XCTAssertEqual(fixture.recorder.alerts.compactMap(\.detail), [WorkspaceOpener.missingFileDetail])
+    }
+
+    /// The editor's Move to Trash hands the file here, and every store that could still point at
+    /// it lets go: the hotkey slots, the startup setting, and the library's launch date.
+    func testForgettingAWorkspaceClearsItsHotkeyStartupAndLibraryEntries() throws {
+        let url = try writeWorkspace(makeDocument(name: "Coding"))
+        let fixture = makeFixture()
+        fixture.shortcuts.assign(url, to: 3)
+        fixture.library.recordLaunch(of: url)
+
+        fixture.delegate.forget(url)
+
+        XCTAssertNil(fixture.shortcuts.workspace(for: 3))
+        XCTAssertNil(fixture.library.lastLaunched(url))
+        XCTAssertEqual(fixture.recorder.forgottenStartup, [url])
     }
 
     private func scratchDefaults() -> UserDefaults {

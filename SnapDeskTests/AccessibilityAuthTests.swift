@@ -105,4 +105,22 @@ final class AccessibilityAuthTests: XCTestCase {
         XCTAssertEqual(alerts, ["SnapDesk could not relaunch itself"])
         XCTAssertFalse(AccessibilityAuth.relaunchPending)
     }
+
+    /// Global hot keys keep firing while an alert's `runModal` spins the run loop, and the startup
+    /// restore can ask for the relaunch explanation while the launch-time one is still up. The
+    /// second request is refused rather than stacked on the first.
+    func testAnAlertRequestedWhileOneIsOnScreenIsRefused() {
+        let recorder = recorder
+        AccessibilityAuth.alertPresenter = { message, _, _ in
+            recorder.alerts.append(message)
+            if recorder.alerts.count == 1 {
+                AccessibilityAuth.showRelaunchAlert()
+            }
+            return .cancel
+        }
+
+        AccessibilityAuth.showRelaunchAlert()
+
+        XCTAssertEqual(alerts.count, 1, "the re-entrant request must not put a second alert up")
+    }
 }

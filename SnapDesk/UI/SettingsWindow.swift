@@ -9,7 +9,7 @@ final class SettingsWindowController: NSWindowController {
 
     private let shortcuts: WorkspaceShortcuts
 
-    init(settings: AppSettings = .shared, shortcuts: WorkspaceShortcuts = WorkspaceShortcuts()) {
+    init(settings: AppSettings = .shared, shortcuts: WorkspaceShortcuts) {
         self.settings = settings
         self.shortcuts = shortcuts
         let window = NSWindow(
@@ -64,17 +64,13 @@ private struct SettingsView: View {
 
             Section("Workspace shortcuts") {
                 ForEach(Array(KeyboardShortcuts.Name.workspaceSlots.enumerated()), id: \.offset) { slot, name in
-                    HStack {
+                    WorkspaceChoiceRow(
+                        workspace: assigned.indices.contains(slot) ? assigned[slot] : nil,
+                        emptyText: "No workspace",
+                        onChoose: { choose(slot: slot) },
+                        onClear: { assign(nil, to: slot) }
+                    ) {
                         KeyboardShortcuts.Recorder("", name: name)
-                        Spacer()
-                        Text(assigned.indices.contains(slot) ? (assigned[slot]?.deletingPathExtension().lastPathComponent ?? "No workspace") : "No workspace")
-                            .foregroundStyle(assigned.indices.contains(slot) && assigned[slot] != nil ? .primary : .secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Button("Choose…") { choose(slot: slot) }
-                        if assigned.indices.contains(slot), assigned[slot] != nil {
-                            Button("Clear") { assign(nil, to: slot) }
-                        }
                     }
                 }
             }
@@ -86,26 +82,21 @@ private struct SettingsView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                HStack {
-                    // "when SnapDesk starts", not "at login": the app cannot tell a login launch
-                    // from any other, and a label that means what it says beats one that guesses.
-                    Text("Restore when SnapDesk starts")
-                    Spacer()
-                    Text(startup?.deletingPathExtension().lastPathComponent ?? "Nothing")
-                        .foregroundStyle(startup == nil ? .secondary : .primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Button("Choose…") {
+                WorkspaceChoiceRow(
+                    workspace: startup,
+                    emptyText: "Nothing",
+                    onChoose: {
                         guard let url = pickWorkspace() else { return }
                         settings.startupWorkspace = url
                         startup = url
+                    },
+                    onClear: {
+                        settings.startupWorkspace = nil
+                        startup = nil
                     }
-                    if startup != nil {
-                        Button("Clear") {
-                            settings.startupWorkspace = nil
-                            startup = nil
-                        }
-                    }
+                ) {
+                    // "When SnapDesk starts", not "at login"; see `AppSettings.startupWorkspace`.
+                    Text("Restore when SnapDesk starts")
                 }
             }
         }
@@ -137,5 +128,43 @@ private struct SettingsView: View {
         panel.allowedContentTypes = [WorkspaceFileType.contentType]
         guard panel.runModal() == .OK else { return nil }
         return panel.urls.first
+    }
+}
+
+/// One "what is bound here, Choose…, Clear" row. The five workspace shortcuts and the startup
+/// workspace are the same control with a different label, so they are one view.
+private struct WorkspaceChoiceRow<Label: View>: View {
+    var workspace: URL?
+    /// What to show when nothing is chosen: the shortcut rows say "No workspace", the startup row
+    /// says "Nothing", because the sentence around each is different.
+    var emptyText: String
+    var onChoose: () -> Void
+    var onClear: () -> Void
+    @ViewBuilder var label: Label
+
+    var body: some View {
+        HStack {
+            label
+            Spacer()
+            Text(WorkspaceChoice.text(for: workspace, empty: emptyText))
+                .foregroundStyle(workspace == nil ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button("Choose…", action: onChoose)
+            if workspace != nil {
+                Button("Clear", action: onClear)
+            }
+        }
+    }
+}
+
+/// What a picker row shows for its workspace. A file that is gone says so: the bookmark stores
+/// answer with the last known path for a deleted file, and a row that named it as if present
+/// would leave the user to learn otherwise from the next key press.
+enum WorkspaceChoice {
+    static func text(for workspace: URL?, empty: String) -> String {
+        guard let workspace else { return empty }
+        let name = workspace.deletingPathExtension().lastPathComponent
+        return FileManager.default.fileExists(atPath: workspace.path) ? name : "\(name) (missing)"
     }
 }
