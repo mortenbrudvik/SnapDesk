@@ -136,8 +136,8 @@ final class WorkspaceLibraryTests: XCTestCase {
         XCTAssertEqual(names.sorted(), ["Coding", "Writing"])
     }
 
-    /// Without a folder the listing is exactly the recents list, which is what the sidebar showed
-    /// before any of this existed.
+    /// Without a folder the listing holds exactly the recents — the same set the sidebar showed
+    /// before any of this existed; the order is the library's, pinned below.
     func testWithNoFolderTheListingIsJustRecents() throws {
         let defaults = scratchDefaults()
         let folder = try scratchFolder()
@@ -223,5 +223,137 @@ final class WorkspaceLibraryTests: XCTestCase {
         library.recordLaunch(of: url, at: when)
 
         XCTAssertEqual(library.listing(recents: []).first?.lastLaunched, when)
+    }
+
+    // MARK: Persisted form
+
+    /// The rewrite `WorkspaceBookmark.resolve` asks for has to reach defaults, or the same stale
+    /// bookmark is resolved on every launch and the fallback path names a file that is gone.
+    func testARenamedWorkspaceHasItsNewPathPersistedAfterAReload() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let url = try write("Before", in: folder)
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        WorkspaceLibrary(defaults: defaults).recordLaunch(of: url, at: when)
+
+        let renamed = folder.appendingPathComponent("After.snapdesk")
+        try FileManager.default.moveItem(at: url, to: renamed)
+        XCTAssertEqual(WorkspaceLibrary(defaults: defaults).lastLaunched(renamed), when)
+
+        let paths = try XCTUnwrap(defaults.array(forKey: "libraryPaths") as? [String])
+        XCTAssertEqual(paths.map { URL(fileURLWithPath: $0).lastPathComponent }, ["After.snapdesk"])
+        // And the refreshed bookmark keeps following the file through a second move.
+        let again = folder.appendingPathComponent("Again.snapdesk")
+        try FileManager.default.moveItem(at: renamed, to: again)
+        XCTAssertEqual(WorkspaceLibrary(defaults: defaults).lastLaunched(again), when)
+    }
+
+    /// The nominated folder's setting follows the same rule.
+    func testARenamedFolderHasItsNewPathPersisted() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        try write("Coding", in: folder)
+        WorkspaceLibrary(defaults: defaults).folder = folder
+        let renamed = folder.deletingLastPathComponent()
+            .appendingPathComponent("snapdesk-library-renamed-\(UUID().uuidString)")
+        try FileManager.default.moveItem(at: folder, to: renamed)
+        addTeardownBlock { try? FileManager.default.removeItem(at: renamed) }
+
+        let reloaded = WorkspaceLibrary(defaults: defaults)
+        XCTAssertEqual(reloaded.listing(recents: []).map(\.name), ["Coding"])
+        XCTAssertEqual(
+            URL(fileURLWithPath: defaults.string(forKey: "libraryFolderPath") ?? "").lastPathComponent,
+            renamed.lastPathComponent
+        )
+    }
+
+    /// Three arrays that disagree in length are read as the entries they agree on and written back
+    /// in step, so the disagreement is not carried to the next launch.
+    func testRaggedArraysInDefaultsLoadAsTheEntriesTheyAgreeOnAndAreRewritten() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let a = try write("A", in: folder)
+        let b = try write("B", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.recordLaunch(of: a, at: Date(timeIntervalSince1970: 1_000))
+        library.recordLaunch(of: b, at: Date(timeIntervalSince1970: 2_000))
+        // Drop the last date, as a hand edit or a crash between the three writes could.
+        defaults.set([Date(timeIntervalSince1970: 1_000)], forKey: "libraryDates")
+
+        let reloaded = WorkspaceLibrary(defaults: defaults)
+
+        XCTAssertEqual(reloaded.entryCount, 1)
+        XCTAssertEqual(reloaded.lastLaunched(a), Date(timeIntervalSince1970: 1_000))
+        XCTAssertEqual((defaults.array(forKey: "libraryPaths") as? [String])?.count, 1)
+        XCTAssertEqual((defaults.array(forKey: "libraryBookmarks") as? [Data])?.count, 1)
+    }
+
+    /// Pruning is written back too, or every launch prunes the same entries again.
+    func testPruningADeletedWorkspaceIsWrittenBack() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let kept = try write("Kept", in: folder)
+        let deleted = try write("Deleted", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.recordLaunch(of: kept)
+        library.recordLaunch(of: deleted)
+        try FileManager.default.removeItem(at: deleted)
+
+        _ = WorkspaceLibrary(defaults: defaults)
+
+        XCTAssertEqual((defaults.array(forKey: "libraryPaths") as? [String])?.count, 1)
+        XCTAssertEqual((defaults.array(forKey: "libraryDates") as? [Date])?.count, 1)
+    }
+
+    /// The editor's Move to Trash clears the date too; the file is gone and so is its history.
+    func testForgettingAWorkspaceDropsItsDate() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let url = try write("Coding", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.recordLaunch(of: url)
+
+        library.forget(url)
+
+        XCTAssertNil(library.lastLaunched(url))
+        XCTAssertNil(WorkspaceLibrary(defaults: defaults).lastLaunched(url), "and it stays gone")
+    }
+
+    /// Without a folder the listing is the recents list as a set — but in the library's order,
+    /// most recently restored first and then by name, which is not the store's most-recently-
+    /// opened order. Two elements, because one cannot tell the two orders apart.
+    func testWithNoFolderTheListingIsTheRecentsOrderedForTheSidebar() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let restored = try write("Restored", in: folder)
+        let opened = try write("Opened", in: folder)
+        let library = WorkspaceLibrary(defaults: defaults)
+        library.recordLaunch(of: restored, at: Date(timeIntervalSince1970: 1_000))
+
+        XCTAssertEqual(
+            library.listing(recents: [opened, restored]).map(\.name),
+            ["Restored", "Opened"]
+        )
+    }
+
+    /// The sidebar has to be able to say that a folder is nominated but cannot be read right now,
+    /// which is not the same as an empty one.
+    func testAFolderThatCannotBeReadIsReportedAsUnavailable() throws {
+        let defaults = scratchDefaults()
+        let folder = try scratchFolder()
+        let library = WorkspaceLibrary(defaults: defaults)
+        XCTAssertEqual(library.folderAvailability(), .none)
+
+        library.folder = folder
+        guard case .listed(let listed) = library.folderAvailability() else {
+            return XCTFail("a readable folder is listed")
+        }
+        XCTAssertEqual(listed.resolvingSymlinksInPath().path, folder.resolvingSymlinksInPath().path)
+
+        try FileManager.default.removeItem(at: folder)
+        guard case .unavailable(let missing) = library.folderAvailability() else {
+            return XCTFail("a deleted folder is unavailable, not none: the setting stays")
+        }
+        XCTAssertEqual(missing.lastPathComponent, folder.lastPathComponent)
     }
 }

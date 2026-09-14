@@ -1,8 +1,8 @@
 import AppKit
 import KeyboardShortcuts
 
-/// Registers the Capture and Editor global hotkeys once. The library uses Carbon
-/// `RegisterEventHotKey`, so they fire while any app is frontmost.
+/// Registers the Capture and Editor global hotkeys, and the five workspace slots, once. The
+/// library uses Carbon `RegisterEventHotKey`, so they fire while any app is frontmost.
 @MainActor
 final class HotkeyCenter {
     private weak var capturing: (any WorkspaceCapturing)?
@@ -52,15 +52,18 @@ final class HotkeyCenter {
     /// LSUIElement app discards, and still reports the shortcut as set), so a combination
     /// another app already owns logs exactly the same line and then never fires. Distinguishing
     /// the two would need the Carbon status the library never surfaces; until then the only
-    /// real check is pressing the key. An unbound command, at least, can never fire, so that
-    /// one is a warning.
+    /// real check is pressing the key. An unbound Capture or Editor, at least, can never fire, so
+    /// that is a warning; the workspace slots ship unbound and say so at info.
     private func logBindings() {
         for name in [KeyboardShortcuts.Name.capture, .editor] + KeyboardShortcuts.Name.workspaceSlots {
             guard let shortcut = KeyboardShortcuts.getShortcut(for: name) else {
-                // The workspace slots ship unbound, so this is the ordinary state for them rather
-                // than a misconfiguration; it is still worth a line when chasing a key that did
-                // not fire.
-                Log.hotkeys.info("\(name.rawValue, privacy: .public): unbound, so it will never fire")
+                if KeyboardShortcuts.Name.workspaceSlots.contains(name) {
+                    // Their ordinary state rather than a misconfiguration; still worth a line
+                    // when chasing a key that did not fire.
+                    Log.hotkeys.info("\(name.rawValue, privacy: .public): unbound, so it will never fire")
+                } else {
+                    Log.hotkeys.warning("\(name.rawValue, privacy: .public): unbound, so it will never fire")
+                }
                 continue
             }
             Log.hotkeys.info("\(name.rawValue, privacy: .public): configured as \(String(describing: shortcut), privacy: .public) (configured, not confirmed registered)")

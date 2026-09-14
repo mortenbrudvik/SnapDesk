@@ -43,29 +43,24 @@ final class RecentsStore {
     /// earlier builds wrote, so this stays readable by them; `WorkspaceBookmark` is what pairs
     /// them up.
     private func persist() {
-        let stored = urls.map(WorkspaceBookmark.make(for:))
-        defaults.set(stored.map(\.bookmark), forKey: Key.bookmarks)
-        defaults.set(stored.map(\.path), forKey: Key.paths)
-    }
-
-    private static func stored(in defaults: UserDefaults) -> [WorkspaceBookmark] {
-        let bookmarks = defaults.array(forKey: Key.bookmarks) as? [Data] ?? []
-        let paths = defaults.array(forKey: Key.paths) as? [String] ?? []
-        return (0..<max(bookmarks.count, paths.count)).map { i in
-            WorkspaceBookmark(
-                path: i < paths.count ? paths[i] : "",
-                bookmark: i < bookmarks.count ? bookmarks[i] : Data()
-            )
-        }
+        WorkspaceBookmark.store(
+            urls.map(WorkspaceBookmark.make(for:)),
+            in: defaults,
+            bookmarks: Key.bookmarks,
+            paths: Key.paths
+        )
     }
 
     private static func load(from defaults: UserDefaults) -> (urls: [URL], needsRewrite: Bool) {
         var result: [URL] = []
         var needsRewrite = false
 
-        for entry in stored(in: defaults) {
-            if let resolved = entry.resolve(needsRewrite: &needsRewrite) {
-                result.append(resolved)
+        for entry in WorkspaceBookmark.list(in: defaults, bookmarks: Key.bookmarks, paths: Key.paths) {
+            if let resolution = entry.resolve() {
+                result.append(resolution.url)
+                if resolution.bookmark != entry {
+                    needsRewrite = true
+                }
             }
         }
 

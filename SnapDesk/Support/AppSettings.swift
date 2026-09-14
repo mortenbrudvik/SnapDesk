@@ -1,4 +1,5 @@
 import Foundation
+import KeyboardShortcuts
 import ServiceManagement
 
 /// The slice of `SMAppService` that `AppSettings` uses, so the toggle logic can be tested
@@ -19,10 +20,10 @@ extension SMAppService: LoginItemService {}
 /// assignment has to follow a file that gets moved or renamed, which is what the bookmark is for.
 @MainActor
 final class WorkspaceShortcuts {
-    /// Matches `KeyboardShortcuts.Name.workspaceSlots`. Both are pinned together by
-    /// `HotkeyNameTests`, because a slot with no name could never fire and a name with no slot
-    /// could never be assigned.
-    static let slotCount = 5
+    /// One slot per `KeyboardShortcuts.Name.workspaceSlots` entry, by construction rather than by
+    /// a test: a slot with no name could never fire, and a name with no slot could never be
+    /// assigned.
+    static let slotCount = KeyboardShortcuts.Name.workspaceSlots.count
 
     private enum Key {
         static let bookmarks = "workspaceShortcutBookmarks"
@@ -38,48 +39,60 @@ final class WorkspaceShortcuts {
         slots = Self.load(from: defaults)
     }
 
-    /// The workspace bound to a slot, or nil when it is empty or the index is out of range.
-    /// Resolved on every call so a file renamed since launch is still found.
+    /// The workspace bound to a slot, or nil when it is empty. Resolved on every call so a file
+    /// renamed since launch is still found.
     func workspace(for slot: Int) -> URL? {
-        guard slots.indices.contains(slot) else { return nil }
+        guard slots.indices.contains(slot) else {
+            Log.settings.error("workspace slot \(slot) is outside the \(Self.slotCount) slots there are")
+            return nil
+        }
         let entry = slots[slot]
-        guard !entry.isEmpty else { return nil }
-        var needsRewrite = false
-        let resolved = entry.resolve(needsRewrite: &needsRewrite)
-        if needsRewrite, let resolved {
-            // A stale bookmark resolved but will stop working; rewriting it here is what keeps
-            // the slot pointing at the file after the next move.
-            slots[slot] = WorkspaceBookmark.make(for: resolved)
+        guard !entry.isEmpty, let resolution = entry.resolve() else { return nil }
+        if resolution.bookmark != entry {
+            // A stale bookmark resolved but will stop working, or the file has moved; writing the
+            // entry `resolve` handed back is what keeps the slot on the file after the next move.
+            slots[slot] = resolution.bookmark
             persist()
         }
-        return resolved
+        return resolution.url
     }
 
-    /// Binds a workspace to a slot, or clears it with nil. An index outside the fixed range is
-    /// ignored rather than trapping: it can arrive from a preference an older or newer build
-    /// wrote.
+    /// Clears every slot bound to this file. The editor's Move to Trash calls it: measured, a
+    /// bookmark follows a file into the Trash, so a slot left bound would otherwise keep
+    /// answering for a workspace the user deleted.
+    func forget(_ url: URL) {
+        var changed = false
+        for slot in slots.indices where !slots[slot].isEmpty {
+            guard let resolution = slots[slot].resolve(),
+                  WorkspaceBookmark.sameFile(resolution.url, url) else { continue }
+            slots[slot] = .none
+            changed = true
+        }
+        if changed {
+            persist()
+        }
+    }
+
+    /// Binds a workspace to a slot, or clears it with nil. An index outside the range is a
+    /// programming error — indices only ever come from enumerating the names — and is logged
+    /// rather than trapped, because a trap in a hotkey handler takes the app down.
     func assign(_ url: URL?, to slot: Int) {
-        guard slots.indices.contains(slot) else { return }
+        guard slots.indices.contains(slot) else {
+            Log.settings.error("workspace slot \(slot) is outside the \(Self.slotCount) slots there are")
+            return
+        }
         slots[slot] = url.map(WorkspaceBookmark.make(for:)) ?? .none
         persist()
     }
 
     private func persist() {
-        defaults.set(slots.map(\.bookmark), forKey: Key.bookmarks)
-        defaults.set(slots.map(\.path), forKey: Key.paths)
+        WorkspaceBookmark.store(slots, in: defaults, bookmarks: Key.bookmarks, paths: Key.paths)
     }
 
     /// Always returns `slotCount` entries, whatever is in defaults: a short array from an older
     /// build, or a long one from a newer, must not change what a slot index means.
     private static func load(from defaults: UserDefaults) -> [WorkspaceBookmark] {
-        let bookmarks = defaults.array(forKey: Key.bookmarks) as? [Data] ?? []
-        let paths = defaults.array(forKey: Key.paths) as? [String] ?? []
-        return (0..<slotCount).map { i in
-            WorkspaceBookmark(
-                path: i < paths.count ? paths[i] : "",
-                bookmark: i < bookmarks.count ? bookmarks[i] : Data()
-            )
-        }
+        WorkspaceBookmark.list(in: defaults, bookmarks: Key.bookmarks, paths: Key.paths, count: slotCount)
     }
 }
 
@@ -105,25 +118,14 @@ final class AppSettings: ObservableObject {
     /// file if the user moves or renames it. Unlike `launchAtLogin` this *is* ours to store:
     /// nothing outside the app owns it.
     var startupWorkspace: URL? {
-        get {
-            var needsRewrite = false
-            guard let resolved = storedStartupWorkspace.resolve(needsRewrite: &needsRewrite) else { return nil }
-            if needsRewrite {
-                // Through the storage directly, never through the setter: assigning to the
-                // property from inside its own getter is how a re-entrant accessor is written by
-                // accident, and the compiler says so.
-                store(resolved)
-            }
-            return resolved
-        }
-        set { store(newValue) }
+        get { startupStorage.url }
+        set { startupStorage.url = newValue }
     }
 
-    private func store(_ url: URL?) {
-        let entry = url.map(WorkspaceBookmark.make(for:)) ?? .none
-        storedStartupWorkspace = entry
-        defaults.set(entry.bookmark, forKey: Key.startupBookmark)
-        defaults.set(entry.path, forKey: Key.startupPath)
+    /// Clears the startup workspace when it is this file — the editor's Move to Trash — and
+    /// leaves any other choice alone.
+    func forgetStartupWorkspace(_ url: URL) {
+        startupStorage.forget(url)
     }
 
     private enum Key {
@@ -131,8 +133,7 @@ final class AppSettings: ObservableObject {
         static let startupPath = "startupWorkspacePath"
     }
 
-    private var storedStartupWorkspace: WorkspaceBookmark
-    private let defaults: UserDefaults
+    private let startupStorage: BookmarkedURLSetting
     private let loginItems: any LoginItemService
     private var isApplyingLoginItem = false
 
@@ -142,10 +143,10 @@ final class AppSettings: ObservableObject {
     /// nothing outside the app owns that, so it is stored here.
     init(loginItems: any LoginItemService = SMAppService.mainApp, defaults: UserDefaults = .standard) {
         self.loginItems = loginItems
-        self.defaults = defaults
-        storedStartupWorkspace = WorkspaceBookmark(
-            path: defaults.string(forKey: Key.startupPath) ?? "",
-            bookmark: defaults.data(forKey: Key.startupBookmark) ?? Data()
+        startupStorage = BookmarkedURLSetting(
+            defaults: defaults,
+            bookmarkKey: Key.startupBookmark,
+            pathKey: Key.startupPath
         )
         launchAtLogin = loginItems.status == .enabled
         loginItemMessage = Self.message(for: loginItems.status)
