@@ -530,10 +530,10 @@ func testNoStartupWorkspaceRestoresNothing() async { /* … */ }
 
 ## Outcome
 
-Implemented on `feat/snapdesk-v2-features`, twelve commits, 408 tests passing with
-0 skipped and 0 warnings in both Debug and Release. Every step above is done. Four
-things turned out differently from the plan, each because the code or a measurement
-said so:
+Implemented on `feat/snapdesk-v2-features`, thirteen commits including this
+record, 408 tests passing with 0 skipped and 0 warnings in both Debug and Release.
+Every step above is done. Five things turned out differently from the plan, each
+because the code or a measurement said so:
 
 - **Fullscreen is applied on *both* sides of the frame write, not only after it.**
   The plan had one step after the frame. Entering fullscreen does belong last, since
@@ -553,6 +553,8 @@ said so:
 - **A plain bookmark for the nominated folder, not a security-scoped one.** SnapDesk
   cannot be sandboxed — the App Sandbox blocks the Accessibility calls it exists for
   — so there is no scope to reclaim and the start/stop dance would do nothing.
+- **The folder is chosen from the editor's sidebar, not in Settings** as D2 said:
+  beside the list it feeds, where Change and Stop Listing are one click away.
 
 Forward compatibility was verified rather than assumed: a standalone decode against
 the pre-feature `SavedWindow` shape confirms an older build reads a file this one
@@ -562,3 +564,24 @@ One thing outside the code: the Accessibility grant for the test host lapsed
 mid-session into the "trusted but not applying" state CLAUDE.md describes, which
 blocked `AXWindowTests` for part of Phase B. It returned on its own, and the whole
 suite including that file has since passed.
+
+## Measured after the review (2026-09-12)
+
+The review found the premise of Phase B — that opening a document into a running
+app adds a window — stated but never measured. Probed with local HTML files against
+the browsers running on the machine, counting layer-0 windows per process:
+
+| Call | Safari, running with 3 windows | Brave, running with 1 window |
+|---|---|---|
+| `NSWorkspace.open` of a file, `createsNewApplicationInstance: false`, twice | 3 → 3 → 3 (tabs) | 1 → 1 → 1 (tabs) |
+| `openApplication`, new instance, arguments `--new-window <file>` | not tried | 1 → 2: a window in the running instance |
+
+So a browser opens a document as a tab, and Chromium's process singleton honours
+`--new-window` handed to a second instance. `NSWorkspaceDocumentOpener` now takes
+that path for apps whose Info.plist carries `CrProductDirName` (Brave has it,
+Safari does not), and the help says Safari opens a tab. The fixes for the rest of
+the review are in `2026-09-12-v2-review-fixes.md`.
+
+Also measured then: a `.minimalBookmark` follows a file into `~/.Trash` and
+resolves there with `isStale` true, which is why `WorkspaceBookmark.resolve` treats
+a URL under the Trash as gone.
