@@ -52,7 +52,60 @@ struct SavedWindow: Codable, Equatable, Sendable {
     var height: Double
     var minimized: Bool
     var zoomed: Bool
+    /// Whether the window was in true fullscreen — the green-button state, which is not `zoomed`.
+    ///
+    /// Nil in every file written before this field existed, and that is not the same as false: a
+    /// window recorded by an older build says nothing about fullscreen, so restore leaves it
+    /// alone rather than dragging it out. Unlike zoom, this is read from a real attribute; see
+    /// `AXWindow.fullscreenState`.
+    var fullscreen: Bool?
+    /// The document, page or folder the window had open, when the app vends one.
+    ///
+    /// This is what makes a cold start reproduce every window rather than one: arguments reach a
+    /// *new* instance only, so a running app ignores them, while opening a document works either
+    /// way. Nil where the app vends nothing — Safari and Finder vend nothing — and in every file
+    /// written before the field existed.
+    ///
+    /// Only a value `WorkspaceDocumentReference.isUsable` accepts is ever stored; see there for
+    /// why the raw attribute cannot be trusted.
+    var document: String?
     var arguments: String
+}
+
+/// What a saved document reference is allowed to be.
+///
+/// `AXDocument` is not a URL field. Measured, it holds a page URL in Brave, a working directory in
+/// Terminal and a file path in TextEdit — but on other apps it holds a string that is not a
+/// location at all. Restore hands this value to LaunchServices, so anything that cannot be opened
+/// is refused here rather than guessed at: a bare word is a title that happened to land in the
+/// attribute, and a scheme like `javascript:` is not something to hand to `NSWorkspace`.
+enum WorkspaceDocumentReference {
+    /// Deliberately short. `http` and `https` are pages; `file` is everything on disk. A scheme
+    /// not on this list is refused rather than passed through, because the point of the check is
+    /// to bound what a workspace file can make the app open.
+    static let allowedSchemes: Set<String> = ["http", "https", "file"]
+
+    /// The URL restore should hand to LaunchServices, or nil for a value that must not get there.
+    /// This is the single decision: `isUsable` is defined as "this answered something", so a value
+    /// that may be saved and one that can be opened cannot drift apart.
+    static func url(for text: String) -> URL? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // An absolute path, which is what Terminal and TextEdit actually vend, is unambiguous and
+        // needs no scheme — and `URL(string:)` would give it none at all.
+        if trimmed.hasPrefix("/") { return URL(fileURLWithPath: trimmed) }
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return nil }
+        guard allowedSchemes.contains(scheme) else { return nil }
+        // A scheme on its own is not a location: "https:" parses cleanly and opens nothing.
+        guard !(url.host ?? "").isEmpty || !url.path.isEmpty else { return nil }
+        return url
+    }
+
+    /// Whether a value may be saved: the same check restore applies, by construction rather than
+    /// by convention, which is what lets capture never produce a document the loader would reject.
+    static func isUsable(_ text: String) -> Bool {
+        url(for: text) != nil
+    }
 }
 
 /// Version of the on-disk schema. A distinct type is what keeps callers from stamping a document
@@ -316,6 +369,9 @@ struct WorkspaceDocument: Codable, Equatable, Sendable {
             }
             guard window.displayId.isEmpty || displayIds.contains(window.displayId) else {
                 throw reject("window \"\(window.name)\" names display \"\(window.displayId)\", which the file does not describe")
+            }
+            if let document = window.document, !WorkspaceDocumentReference.isUsable(document) {
+                throw reject("window \"\(window.name)\" has a document that cannot be opened: \"\(document)\"")
             }
         }
     }

@@ -59,6 +59,32 @@ final class HotkeyNameTests: XCTestCase {
         XCTAssertEqual(KeyboardShortcuts.Name.editor.rawValue, "editor")
     }
 
+    /// Five fixed slots rather than one name per workspace. `KeyboardShortcuts.Name` is a
+    /// *persisted* identity, so minting one per file would leave a binding behind in defaults
+    /// every time a workspace was deleted, with nothing left that knows to clean it up.
+    func testTheWorkspaceSlotsHaveDistinctRawValuesAndStartUnbound() {
+        XCTAssertEqual(
+            KeyboardShortcuts.Name.workspaceSlots.map(\.rawValue),
+            ["workspace1", "workspace2", "workspace3", "workspace4", "workspace5"]
+        )
+
+        for name in KeyboardShortcuts.Name.workspaceSlots {
+            XCTAssertNil(
+                name.defaultShortcut,
+                "\(name.rawValue) must start unbound: which keys these use is the user's to choose"
+            )
+        }
+    }
+
+    /// A slot that shared a raw value with Capture or Editor would silently take over that
+    /// command's stored binding.
+    func testTheWorkspaceSlotsDoNotShadowCaptureOrEditor() {
+        let builtIn = Set([KeyboardShortcuts.Name.capture.rawValue, KeyboardShortcuts.Name.editor.rawValue])
+        for name in KeyboardShortcuts.Name.workspaceSlots {
+            XCTAssertFalse(builtIn.contains(name.rawValue), "\(name.rawValue) collides with a built-in command")
+        }
+    }
+
     func testEachNameIsRegisteredWithItsDeclaredDefault() {
         XCTAssertEqual(KeyboardShortcuts.Name.capture.defaultShortcut, HotkeyName.captureDefault)
         XCTAssertEqual(KeyboardShortcuts.Name.editor.defaultShortcut, HotkeyName.editorDefault)

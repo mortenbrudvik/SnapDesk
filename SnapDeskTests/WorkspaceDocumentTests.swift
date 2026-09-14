@@ -75,6 +75,115 @@ final class WorkspaceDocumentTests: XCTestCase {
         XCTAssertEqual(roundTripped, original)
     }
 
+    /// The field is optional so that every file written before it existed still opens, and a file
+    /// written now still opens in a build that has never heard of it — Swift's synthesised Codable
+    /// omits a nil and ignores a key it does not know.
+    func testFullscreenIsOptionalInBothDirections() throws {
+        let old = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        XCTAssertNil(old.windows[0].fullscreen, "a file without the key must decode")
+
+        var updated = old
+        updated.windows[0].fullscreen = true
+        let text = try XCTUnwrap(String(data: updated.encoded(), encoding: .utf8))
+        XCTAssertTrue(text.contains("\"fullscreen\" : true"), "unexpected encoding in:\n\(text)")
+
+        XCTAssertEqual(try WorkspaceDocument.decode(updated.encoded()).windows[0].fullscreen, true)
+    }
+
+    /// A nil is absent rather than null, so a workspace that records nothing new stays
+    /// byte-identical to what the previous build wrote.
+    func testAWindowWithNoFullscreenStateWritesNoKey() throws {
+        let document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        let text = try XCTUnwrap(String(data: document.encoded(), encoding: .utf8))
+        XCTAssertFalse(text.contains("fullscreen"))
+    }
+
+    /// The document a window had open, so a cold start can reproduce it. Optional on the same
+    /// terms as `fullscreen`: absent from every file written before it existed, and absent from
+    /// the encoding when it is nil.
+    func testDocumentIsOptionalAndRoundTrips() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        XCTAssertNil(document.windows[0].document)
+
+        document.windows[0].document = "https://github.com/mortenbrudvik/SnapDesk"
+        XCTAssertEqual(
+            try WorkspaceDocument.decode(document.encoded()).windows[0].document,
+            "https://github.com/mortenbrudvik/SnapDesk"
+        )
+    }
+
+    /// `AXDocument` can hold a string that is not a URL at all — measured on three apps, which
+    /// vend something closer to a window title. The restore path hands this value to
+    /// LaunchServices, so a value that cannot be opened must never reach a saved workspace.
+    func testADocumentThatIsNotAUsableURLIsRejected() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+
+        for bad in ["", "   ", "not a url", "javascript:alert(1)", "Untitled 3", "mailto:a@b.c"] {
+            document.windows[0].document = bad
+            XCTAssertThrowsError(try document.validate(), "accepted \"\(bad)\"")
+        }
+
+        // An absolute path is accepted because it is what Terminal and TextEdit actually vend.
+        for good in [
+            "https://example.com",
+            "http://example.com/a/b?c=d",
+            "file:///Users/me/notes.txt",
+            "/Users/me/notes.txt",
+        ] {
+            document.windows[0].document = good
+            XCTAssertNoThrow(try document.validate(), "rejected \"\(good)\"")
+        }
+    }
+
+    /// A rejection has to name the window, like every other rule here: a file with twenty slots
+    /// and a message that says only "a document cannot be opened" is not actionable.
+    func testARejectedDocumentNamesTheWindow() throws {
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        document.windows[0].document = "not a url"
+
+        XCTAssertThrowsError(try document.validate()) { error in
+            XCTAssertTrue(
+                "\(error)".contains("Safari"),
+                "the message should name the window, but was: \(error)"
+            )
+        }
+    }
+
+    /// The other direction of `testFullscreenIsOptionalInBothDirections`, pinned rather than
+    /// remembered: a file this build writes, with both new fields set, decodes with the window
+    /// shape of the build before them — synthesised Codable ignores a key it does not know. The
+    /// shape is spelled out here so a later field is added to it, and the claim keeps being
+    /// tested rather than asserted.
+    func testAFileWrittenByThisBuildDecodesWithThePreFeatureWindowShape() throws {
+        struct LegacySavedWindow: Decodable {
+            var bundleIdentifier: String
+            var bundlePath: String
+            var name: String
+            var title: String
+            var displayId: String
+            var x: Double
+            var y: Double
+            var width: Double
+            var height: Double
+            var minimized: Bool
+            var zoomed: Bool
+            var arguments: String
+        }
+        struct LegacyDocument: Decodable {
+            var version: Int
+            var name: String
+            var windows: [LegacySavedWindow]
+        }
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        document.windows[0].fullscreen = true
+        document.windows[0].document = "https://example.com"
+
+        let legacy = try JSONDecoder().decode(LegacyDocument.self, from: document.encoded())
+
+        XCTAssertEqual(legacy.version, 1)
+        XCTAssertEqual(legacy.windows.map(\.title), document.windows.map(\.title))
+    }
+
     func testEncodedIsPrettyAndSortedKeys() throws {
         let doc = try WorkspaceDocument.decode(Data(specJSON.utf8))
         let encoded = try doc.encoded()

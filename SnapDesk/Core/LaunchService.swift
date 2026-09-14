@@ -30,6 +30,12 @@ enum SlotFailure: Equatable, Sendable, CaseIterable {
     /// take. Reported apart from `couldNotPosition` because the user would otherwise go looking
     /// for a window that is exactly where they saved it.
     case stateNotRestored
+    /// The slot named a document and the open was refused: a file that has moved, a URL the app
+    /// would not take — or, less often, the app itself failing to launch, which the one call
+    /// cannot tell apart. Reported apart from `.launchFailed` because the document is usually the
+    /// cause, and apart from `.noWindow`, which is what this would otherwise look like after the
+    /// whole window budget had been spent waiting for a window the open never created.
+    case documentFailed
 
     var displayText: String {
         switch self {
@@ -51,8 +57,10 @@ enum SlotFailure: Equatable, Sendable, CaseIterable {
             return "Window disappeared"
         case .couldNotPosition:
             return "Could not position"
+        case .documentFailed:
+            return "Could not open document"
         case .stateNotRestored:
-            return "Zoom or minimize failed"
+            return "Zoom, fullscreen or minimize failed"
         }
     }
 }
@@ -170,7 +178,13 @@ protocol WindowCatalog {
 /// it writes the frame; see `WindowPlacement.apply`.
 @MainActor
 protocol WindowPlacing {
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome
+    func place(
+        _ window: MatchableWindow,
+        cocoaFrame: CGRect,
+        minimized: Bool,
+        zoomed: Bool,
+        fullscreen: Bool?
+    ) async -> PlacementOutcome
 }
 
 /// The two things a bounded wait needs from time: to let some pass, and to know how much has.
@@ -292,6 +306,7 @@ final class LaunchService {
     static let correctionWindow: Duration = .seconds(4)
 
     private let launcher: any ApplicationLaunching
+    private let documentOpener: any DocumentOpening
     private let apps: any RunningApplicationQuerying
     private let windows: any WindowCatalog
     private let placer: any WindowPlacing
@@ -310,6 +325,7 @@ final class LaunchService {
 
     init(
         launcher: any ApplicationLaunching,
+        documentOpener: any DocumentOpening,
         apps: any RunningApplicationQuerying,
         windows: any WindowCatalog,
         placer: any WindowPlacing,
@@ -320,6 +336,7 @@ final class LaunchService {
         prohibitsMultipleInstances: @escaping (String, String) -> Bool = { _, _ in false }
     ) {
         self.launcher = launcher
+        self.documentOpener = documentOpener
         self.apps = apps
         self.windows = windows
         self.placer = placer
@@ -337,6 +354,7 @@ final class LaunchService {
         let clock = TaskClock()
         self.init(
             launcher: NSWorkspaceLauncher(),
+            documentOpener: NSWorkspaceDocumentOpener(),
             apps: NSWorkspaceRunningQuery(),
             windows: AXWindowCatalog(),
             placer: AXWindowPlacer(clock: clock),
@@ -417,13 +435,15 @@ final class LaunchService {
                 onProgress(progress)
                 return progress
             }
-            guard case .launch(let arguments, let newInstance) = action else { continue }
+            // A plain launch and a document open share everything below except the one call in
+            // the middle; `openRequest` is that shape.
+            guard let request = action.openRequest else { continue }
 
             progress[index].status = .launching
             onProgress(progress)
 
             let bundle = slots[index].bundleIdentifier
-            if newInstance, preExistingPIDs[bundle] == nil {
+            if request.newInstance, preExistingPIDs[bundle] == nil {
                 preExistingPIDs[bundle] = apps.runningPIDs(bundleIdentifier: bundle)
             }
 
@@ -432,12 +452,16 @@ final class LaunchService {
                 continue
             }
             let configuration = LaunchConfiguration(
-                arguments: arguments,
-                createsNewApplicationInstance: newInstance,
+                arguments: request.arguments,
+                createsNewApplicationInstance: request.newInstance,
                 activates: false
             )
             do {
-                try await open(at: url, configuration: configuration)
+                if let slotDocument = request.document {
+                    try await openDocument(slotDocument, withApplicationAt: url, configuration: configuration)
+                } else {
+                    try await open(at: url, configuration: configuration)
+                }
                 progress[index].status = .pending
                 onProgress(progress)
             } catch {
@@ -452,16 +476,22 @@ final class LaunchService {
                 let timedOut = error is LaunchTimeoutError
                 Log.launch.error(
                     """
-                    slot \(index) could not open \(url.lastPathComponent, privacy: .public): \
+                    slot \(index) could not open \(request.document?.absoluteString ?? url.lastPathComponent, privacy: .public): \
                     \(String(describing: error), privacy: .public)
                     """
                 )
-                fail(
-                    &progress,
-                    index: index,
-                    reason: timedOut ? .launchTimedOut : .launchFailed,
-                    onProgress: onProgress
-                )
+                // A refused document is its own failure: the app is usually fine, so `.launchFailed`
+                // would send the user looking in the wrong place — and a timeout is still a
+                // timeout whichever call was waiting.
+                let reason: SlotFailure
+                if timedOut {
+                    reason = .launchTimedOut
+                } else if request.document == nil {
+                    reason = .launchFailed
+                } else {
+                    reason = .documentFailed
+                }
+                fail(&progress, index: index, reason: reason, onProgress: onProgress)
             }
         }
 
@@ -650,7 +680,8 @@ final class LaunchService {
                     match,
                     cocoaFrame: target.frame,
                     minimized: slot.minimized,
-                    zoomed: slot.zoomed
+                    zoomed: slot.zoomed,
+                    fullscreen: slot.fullscreen
                 )
                 if let failure = outcome.slotFailure {
                     // A placement torn down by a Cancel refuses like any other. The user stopping
@@ -747,7 +778,8 @@ final class LaunchService {
                     own,
                     cocoaFrame: target.frame,
                     minimized: slot.minimized,
-                    zoomed: slot.zoomed
+                    zoomed: slot.zoomed,
+                    fullscreen: slot.fullscreen
                 )
                 guard outcome == .placed else {
                     Log.launch.error(
@@ -828,8 +860,29 @@ final class LaunchService {
     /// whole restore, and the HUD's Cancel button, for those 90s. The attempt is still cancelled,
     /// for a launcher that honours it; otherwise it finishes on its own, unobserved.
     private func open(at url: URL, configuration: LaunchConfiguration) async throws {
-        let timeout = launchTimeout
         let launcher = launcher
+        try await bounded { try await launcher.openApplication(at: url, configuration: configuration) }
+    }
+
+    /// The same bounded wait, around the call that opens a document *in* an app. It needs the
+    /// identical treatment: LaunchServices can hang here exactly as it can on a plain launch, and
+    /// a Cancel has to be able to end the wait rather than sit through it.
+    private func openDocument(
+        _ document: URL,
+        withApplicationAt app: URL,
+        configuration: LaunchConfiguration
+    ) async throws {
+        let opener = documentOpener
+        try await bounded { try await opener.open(document, withApplicationAt: app, configuration: configuration) }
+    }
+
+    /// Runs `operation` against `launchTimeout`, abandoning it at the deadline rather than merely
+    /// reporting one: `NSWorkspace.openApplication` does not observe cancellation (measured, the
+    /// 90s hang on `open(at:)`), and `NSWorkspace.open` is assumed to behave the same, sharing the
+    /// LaunchServices path — so the task is raced against a timer and whichever settles first
+    /// tears the other down. `inFlightOpen` is what lets a Cancel wake the wait; see `cancel()`.
+    private func bounded(_ operation: @escaping @MainActor () async throws -> Void) async throws {
+        let timeout = launchTimeout
         let outcome = FirstOutcome()
         inFlightOpen = outcome
         defer { inFlightOpen = nil }
@@ -837,7 +890,7 @@ final class LaunchService {
             outcome.continuation = continuation
             let attempt = Task { @MainActor in
                 do {
-                    try await launcher.openApplication(at: url, configuration: configuration)
+                    try await operation()
                     outcome.resume(.success(()))
                 } catch {
                     outcome.resume(.failure(error))
@@ -1104,6 +1157,10 @@ protocol PlaceableWindow {
     func setMinimized(_ minimized: Bool) -> AXError
     func setZoomed(_ zoomed: Bool) -> AXError
     func setCocoaFrame(_ frame: CGRect) -> AXError
+    /// Nil for a read that failed. Unlike zoom there is a real attribute behind this, so the
+    /// placement reads it instead of inferring it from the frame; see `AXWindow.fullscreenState`.
+    var fullscreenState: Bool? { get }
+    func setFullScreen(_ fullscreen: Bool) -> AXError
 }
 
 extension AXWindow: PlaceableWindow {}
@@ -1123,6 +1180,10 @@ enum WindowPlacement {
     /// instead. Reusing the two-second bound would cost that twice per such window.
     static let zoomTimeout: Duration = .milliseconds(500)
 
+    /// 2s, matching the deminiaturize bound rather than the zoom one. Measured on a real window:
+    /// a fullscreen transition runs well over a second, where a zoom animates in a quarter of one.
+    static let fullScreenTimeout: Duration = .seconds(2)
+
     /// Short enough that a window that comes straight back is not visibly held up, long enough not
     /// to hammer the AX server of an app that is mid-animation.
     static let statePollInterval: Duration = .milliseconds(50)
@@ -1132,6 +1193,7 @@ enum WindowPlacement {
         cocoaFrame: CGRect,
         minimized: Bool,
         zoomed: Bool,
+        fullscreen: Bool?,
         bundleIdentifier id: String,
         clock: any RestoreClock
     ) async -> PlacementOutcome {
@@ -1200,6 +1262,37 @@ enum WindowPlacement {
             }
         }
 
+        // Leaving fullscreen is a precondition and not a finishing touch: a fullscreen window
+        // swallows a frame write and answers `.success` for it, exactly as a minimized one does.
+        // Entering fullscreen is the opposite case — the transition replaces the frame outright —
+        // so that half waits until after the frame write, at the bottom of this function.
+        //
+        // A nil changes nothing in either direction: it means the workspace was written before
+        // this field existed and says nothing about fullscreen, which is precisely what every
+        // build before this one did with such a file.
+        if fullscreen == false, ax.fullscreenState == true {
+            guard await ensureFullScreen(ax, wanted: false, id: id, clock: clock) else {
+                Log.ax.error(
+                    """
+                    a window of \(id, privacy: .public) would not leave fullscreen; its frame was \
+                    left alone rather than written to a window that swallows it
+                    """
+                )
+                return .refused
+            }
+        } else if fullscreen == false, ax.fullscreenState == nil {
+            // Never answered. The frame write below is the only step that can still report on
+            // this window, so it gets its turn — as it does after an unanswered un-minimize — but
+            // a fullscreen window swallows that write while answering `.success`, so the silence
+            // is worth a line if the placement then lands nowhere.
+            Log.ax.notice(
+                """
+                a window of \(id, privacy: .public) never said whether it was fullscreen; \
+                writing its frame anyway
+                """
+            )
+        }
+
         // Un-zooming first is only a head start for the frame write, so a refusal must not abort
         // the placement: `isZoomed` is inferred from the frame, so a non-resizable window sitting
         // at the visible frame reads as zoomed, has no zoom button to press, and would lose a move
@@ -1211,7 +1304,12 @@ enum WindowPlacement {
         // read would zoom a window that was not zoomed — worse than skipping a precondition whose
         // only job is to help the frame write that follows (and which, on a window whose frame
         // cannot be read, fails on its own and reports the placement as failed).
-        if ax.isZoomed {
+        //
+        // And never on a fullscreen window: the green button *leaves* fullscreen, so a window a
+        // pre-fullscreen workspace says nothing about (nil) would be dragged out of it by the back
+        // door if its frame happened to read as zoomed. A confirmed `false` has already been
+        // handled above, by the precondition.
+        if ax.isZoomed, ax.fullscreenState != true {
             _ = succeeded(ax.setZoomed(false), bundleIdentifier: id, step: "un-zoom")
         }
 
@@ -1226,6 +1324,12 @@ enum WindowPlacement {
         var restoredState = true
         if zoomed {
             restoredState = await ensureZoomed(ax, id: id, clock: clock) && restoredState
+        }
+        // A fullscreen window cannot be minimized, so a slot saved as both — a state capture never
+        // produces, and the editor's toggles no longer allow — is restored minimized: the state it
+        // can actually reach, rather than a fullscreen the minimize would then fail against.
+        if fullscreen == true, !minimized {
+            restoredState = await ensureFullScreen(ax, wanted: true, id: id, clock: clock) && restoredState
         }
         if minimized {
             restoredState = await ensureMinimized(ax, id: id, clock: clock) && restoredState
@@ -1278,6 +1382,46 @@ enum WindowPlacement {
         return false
     }
 
+    /// Writes the attribute only when the state does not already answer the request, then reads
+    /// it back, because the write being accepted is not the transition happening. Measured on a
+    /// real window: the attribute flips as the transition *starts*, and a write that lands before
+    /// it finishes is accepted, reports `.success`, and then does nothing at all.
+    ///
+    /// One attempt rather than the two `ensureZoomed` makes. Zoom needs a second press because the
+    /// press is a toggle AppKit aims itself; this is a plain attribute write, so a second one
+    /// would only re-send what the window already refused.
+    private static func ensureFullScreen(
+        _ ax: some PlaceableWindow,
+        wanted: Bool,
+        id: String,
+        clock: any RestoreClock
+    ) async -> Bool {
+        if ax.fullscreenState == wanted { return true }
+        let direction = wanted ? "enter" : "leave"
+        guard succeeded(ax.setFullScreen(wanted), bundleIdentifier: id, step: "\(direction) fullscreen") else {
+            return false
+        }
+        if await settled(clock: clock, timeout: fullScreenTimeout, until: { ax.fullscreenState == wanted }) {
+            return true
+        }
+        if ax.fullscreenState == nil {
+            Log.ax.error(
+                """
+                a window of \(id, privacy: .public) never said whether it did \(direction, privacy: .public) \
+                fullscreen; the write was accepted and the state could not be read back
+                """
+            )
+        } else {
+            Log.ax.error(
+                """
+                a window of \(id, privacy: .public) did not \(direction, privacy: .public) fullscreen; \
+                the write was accepted and the window stayed where it was
+                """
+            )
+        }
+        return false
+    }
+
     /// Polls a fixed number of times rather than against a wall clock so the wait is the same
     /// length whichever `Clock` is driving it.
     private static func settled(
@@ -1311,7 +1455,13 @@ enum WindowPlacement {
 struct AXWindowPlacer: WindowPlacing {
     var clock: any RestoreClock = TaskClock()
 
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome {
+    func place(
+        _ window: MatchableWindow,
+        cocoaFrame: CGRect,
+        minimized: Bool,
+        zoomed: Bool,
+        fullscreen: Bool?
+    ) async -> PlacementOutcome {
         let ax: AXWindow
         switch axWindow(matching: window) {
         case .found(let found):
@@ -1340,6 +1490,7 @@ struct AXWindowPlacer: WindowPlacing {
             cocoaFrame: cocoaFrame,
             minimized: minimized,
             zoomed: zoomed,
+            fullscreen: fullscreen,
             bundleIdentifier: window.bundleIdentifier,
             clock: clock
         )

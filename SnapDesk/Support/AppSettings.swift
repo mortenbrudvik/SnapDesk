@@ -1,4 +1,5 @@
 import Foundation
+import KeyboardShortcuts
 import ServiceManagement
 
 /// The slice of `SMAppService` that `AppSettings` uses, so the toggle logic can be tested
@@ -10,6 +11,90 @@ protocol LoginItemService {
 }
 
 extension SMAppService: LoginItemService {}
+
+/// Which workspace each of the five assignable hotkeys opens.
+///
+/// The slots are fixed and the *binding* lives here; the key combination itself lives in
+/// KeyboardShortcuts under the matching `KeyboardShortcuts.Name`. Two stores rather than one
+/// because they answer to different owners: the user rebinds keys in Settings, while a workspace
+/// assignment has to follow a file that gets moved or renamed, which is what the bookmark is for.
+@MainActor
+final class WorkspaceShortcuts {
+    /// One slot per `KeyboardShortcuts.Name.workspaceSlots` entry, by construction rather than by
+    /// a test: a slot with no name could never fire, and a name with no slot could never be
+    /// assigned.
+    static let slotCount = KeyboardShortcuts.Name.workspaceSlots.count
+
+    private enum Key {
+        static let bookmarks = "workspaceShortcutBookmarks"
+        static let paths = "workspaceShortcutPaths"
+    }
+
+    private let defaults: UserDefaults
+    /// Exactly `slotCount` entries, empty ones included, so a slot index is an array index.
+    private var slots: [WorkspaceBookmark]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        slots = Self.load(from: defaults)
+    }
+
+    /// The workspace bound to a slot, or nil when it is empty. Resolved on every call so a file
+    /// renamed since launch is still found.
+    func workspace(for slot: Int) -> URL? {
+        guard slots.indices.contains(slot) else {
+            Log.settings.error("workspace slot \(slot) is outside the \(Self.slotCount) slots there are")
+            return nil
+        }
+        let entry = slots[slot]
+        guard !entry.isEmpty, let resolution = entry.resolve() else { return nil }
+        if resolution.bookmark != entry {
+            // A stale bookmark resolved but will stop working, or the file has moved; writing the
+            // entry `resolve` handed back is what keeps the slot on the file after the next move.
+            slots[slot] = resolution.bookmark
+            persist()
+        }
+        return resolution.url
+    }
+
+    /// Clears every slot bound to this file. The editor's Move to Trash calls it: measured, a
+    /// bookmark follows a file into the Trash, so a slot left bound would otherwise keep
+    /// answering for a workspace the user deleted.
+    func forget(_ url: URL) {
+        var changed = false
+        for slot in slots.indices where !slots[slot].isEmpty {
+            guard let resolution = slots[slot].resolve(),
+                  WorkspaceBookmark.sameFile(resolution.url, url) else { continue }
+            slots[slot] = .none
+            changed = true
+        }
+        if changed {
+            persist()
+        }
+    }
+
+    /// Binds a workspace to a slot, or clears it with nil. An index outside the range is a
+    /// programming error — indices only ever come from enumerating the names — and is logged
+    /// rather than trapped, because a trap in a hotkey handler takes the app down.
+    func assign(_ url: URL?, to slot: Int) {
+        guard slots.indices.contains(slot) else {
+            Log.settings.error("workspace slot \(slot) is outside the \(Self.slotCount) slots there are")
+            return
+        }
+        slots[slot] = url.map(WorkspaceBookmark.make(for:)) ?? .none
+        persist()
+    }
+
+    private func persist() {
+        WorkspaceBookmark.store(slots, in: defaults, bookmarks: Key.bookmarks, paths: Key.paths)
+    }
+
+    /// Always returns `slotCount` entries, whatever is in defaults: a short array from an older
+    /// build, or a long one from a newer, must not change what a slot index means.
+    private static func load(from defaults: UserDefaults) -> [WorkspaceBookmark] {
+        WorkspaceBookmark.list(in: defaults, bookmarks: Key.bookmarks, paths: Key.paths, count: slotCount)
+    }
+}
 
 @MainActor
 final class AppSettings: ObservableObject {
@@ -27,14 +112,42 @@ final class AppSettings: ObservableObject {
         loginItems.status
     }
 
+    /// The workspace to restore when SnapDesk starts, or nil for none.
+    ///
+    /// Stored as a bookmark like every other workspace reference here, so the choice follows the
+    /// file if the user moves or renames it. Unlike `launchAtLogin` this *is* ours to store:
+    /// nothing outside the app owns it.
+    var startupWorkspace: URL? {
+        get { startupStorage.url }
+        set { startupStorage.url = newValue }
+    }
+
+    /// Clears the startup workspace when it is this file — the editor's Move to Trash — and
+    /// leaves any other choice alone.
+    func forgetStartupWorkspace(_ url: URL) {
+        startupStorage.forget(url)
+    }
+
+    private enum Key {
+        static let startupBookmark = "startupWorkspaceBookmark"
+        static let startupPath = "startupWorkspacePath"
+    }
+
+    private let startupStorage: BookmarkedURLSetting
     private let loginItems: any LoginItemService
     private var isApplyingLoginItem = false
 
-    /// Nothing here is written to `UserDefaults`: `SMAppService` owns the login-item state, and
-    /// a local copy could only ever disagree with it — the user can remove the item in System
-    /// Settings without SnapDesk running.
-    init(loginItems: any LoginItemService = SMAppService.mainApp) {
+    /// The login-item state is deliberately *not* mirrored into `UserDefaults`: `SMAppService`
+    /// owns it, and a local copy could only ever disagree with it — the user can remove the item
+    /// in System Settings without SnapDesk running. The startup workspace is the opposite case;
+    /// nothing outside the app owns that, so it is stored here.
+    init(loginItems: any LoginItemService = SMAppService.mainApp, defaults: UserDefaults = .standard) {
         self.loginItems = loginItems
+        startupStorage = BookmarkedURLSetting(
+            defaults: defaults,
+            bookmarkKey: Key.startupBookmark,
+            pathKey: Key.startupPath
+        )
         launchAtLogin = loginItems.status == .enabled
         loginItemMessage = Self.message(for: loginItems.status)
     }

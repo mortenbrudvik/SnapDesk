@@ -103,6 +103,15 @@ enum HelpContent {
                 Entry(term: "Capture", detail: shortcut(.capture)),
                 Entry(term: "Editor", detail: shortcut(.editor)),
                 Entry(
+                    term: "Workspace shortcuts",
+                    detail: """
+                    Five more keys you can bind, each to a workspace of your choosing, so a desk \
+                    comes back without opening a menu. They start unbound: pick the keys and the \
+                    workspace in Settings. A key whose workspace has since been deleted says so \
+                    rather than doing nothing, and one with no workspace yet just beeps.
+                    """
+                ),
+                Entry(
                     term: "Changing them",
                     detail: """
                     Settings… lets you record a different combination. The shortcuts work while any \
@@ -118,11 +127,49 @@ enum HelpContent {
                     term: "Window rows",
                     detail: """
                     One row per window. You can edit the title SnapDesk matches on, the display, \
-                    the position and size, whether it is minimized or zoomed, and command-line \
-                    arguments to pass when the app is launched.
+                    the position and size, whether it is minimized, zoomed or fullscreen, the \
+                    document it had open, and command-line arguments to pass when the app is \
+                    launched.
+                    """
+                ),
+                Entry(
+                    term: "Document or URL",
+                    detail: """
+                    The page or file the window had open. SnapDesk fills this in when the app tells \
+                    it — Brave, Terminal and TextEdit do; Safari and Finder do not — and restoring \
+                    opens it. Whether that comes back as a window of its own is the app's choice: \
+                    TextEdit and Terminal open a window per document, Chromium-based browsers such \
+                    as Brave and Chrome are asked for a new window and give one, and Safari opens a \
+                    tab in its frontmost window, so its other saved windows report "No window". \
+                    Restoring the same workspace twice opens the same page twice: nothing checks \
+                    whether the window is already there. Clear the field to restore the window \
+                    without it; text the field cannot store is marked underneath, and the last \
+                    stored value stands until it is replaced or the field is cleared.
+                    """
+                ),
+                Entry(
+                    term: "Fullscreen",
+                    detail: """
+                    Not the same thing as Zoomed. Zoomed fills the screen; fullscreen hides the \
+                    menu bar and gives the window a Space of its own. macOS decides which Space \
+                    that is, and SnapDesk cannot ask for a particular one. Some windows refuse it \
+                    — Activity Monitor, System Settings, any fixed-size window — and those come \
+                    back on their saved frame instead. A minimized window cannot also be \
+                    fullscreen, so turning one on turns the other off.
                     """
                 ),
                 Entry(term: "Remove", detail: "Drops a window from the workspace. The real window is untouched."),
+                Entry(
+                    term: "The Workspaces list",
+                    detail: """
+                    Down the left. Without a folder chosen it lists what you have opened lately. \
+                    Choose Folder… and it lists every workspace in that folder as well, so you can \
+                    see all of them rather than only the recent ones. Selecting a row opens it for \
+                    editing; Launch on the row restores it. Most recently restored comes first, \
+                    and the rest follow by file name. A folder that cannot be read right now — \
+                    a drive that is unplugged, say — is said so under the list, and stays chosen.
+                    """
+                ),
                 Entry(
                     term: "Capture, in the editor",
                     detail: """
@@ -137,6 +184,26 @@ enum HelpContent {
                     On, SnapDesk moves windows an app already has open. Off, it asks the app for a \
                     new instance and leaves your existing windows alone — though many apps ignore \
                     that request and simply activate the copy already running.
+                    """
+                ),
+            ]),
+
+            Topic(title: "Settings", entries: [
+                Entry(
+                    term: "Launch at login",
+                    detail: """
+                    Adds SnapDesk to your login items. macOS may ask you to approve it, and you can \
+                    remove it again in System Settings without SnapDesk running — which is why this \
+                    reads the system's answer rather than remembering its own.
+                    """
+                ),
+                Entry(
+                    term: "Restore when SnapDesk starts",
+                    detail: """
+                    Picks one workspace to come back every time the app starts. Deliberately not \
+                    "at login": SnapDesk cannot tell a login launch from any other, so it does what \
+                    the label says instead of guessing. A workspace you opened by double-clicking \
+                    goes first, and this one follows.
                     """
                 ),
             ]),
@@ -187,10 +254,20 @@ enum HelpContent {
                     detail: "macOS refused to open the app. Check that it opens normally from Finder."
                 ),
                 Entry(
+                    term: SlotFailure.documentFailed.displayText,
+                    detail: """
+                    The page or file the window had is no longer there — a file that has moved or \
+                    been renamed, or an address the app would not take. The app itself is usually \
+                    fine; clear the Document field on that row to restore the window without it. \
+                    If the app did not open at all, the log says so.
+                    """
+                ),
+                Entry(
                     term: SlotFailure.launchTimedOut.displayText,
                     detail: """
-                    The app took more than ten seconds to open, so SnapDesk stopped waiting rather \
-                    than hold up the rest of the restore. Try again once it has started.
+                    The app, or the document it was asked to open, took more than ten seconds, so \
+                    SnapDesk stopped waiting rather than hold up the rest of the restore. Try again \
+                    once the app has started.
                     """
                 ),
                 Entry(
@@ -242,8 +319,9 @@ enum HelpContent {
                 Entry(
                     term: SlotFailure.stateNotRestored.displayText,
                     detail: """
-                    The window is on its saved frame, but would not take the zoom or minimize you \
-                    saved. Windows with no zoom button report this.
+                    The window is on its saved frame, but would not take the zoom, fullscreen or \
+                    minimize you saved. Windows with no zoom button report this, and so do windows \
+                    that refuse fullscreen — Activity Monitor and System Settings among them.
                     """
                 ),
                 Entry(

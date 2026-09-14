@@ -1534,6 +1534,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1553,6 +1554,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1582,6 +1584,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1610,6 +1613,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1639,6 +1643,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1664,6 +1669,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1686,6 +1692,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1707,6 +1714,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1736,6 +1744,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1758,6 +1767,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1782,6 +1792,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1807,6 +1818,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: true,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1831,6 +1843,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1851,6 +1864,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: frame,
             minimized: false,
             zoomed: false,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: ScriptedClock()
         )
@@ -1869,6 +1883,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: ScriptedClock()
         )
@@ -1891,6 +1906,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: window.zoomTarget,
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1913,6 +1929,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: saved,
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1939,6 +1956,7 @@ final class LaunchServiceTests: XCTestCase {
             cocoaFrame: standard,
             minimized: false,
             zoomed: true,
+            fullscreen: nil,
             bundleIdentifier: safariID,
             clock: clock
         )
@@ -1949,6 +1967,448 @@ final class LaunchServiceTests: XCTestCase {
         // 2 attempts x 500ms of 50ms polls. Deliberately far short of the deminiaturize bound: a
         // zoom animates in a quarter second and is not a precondition for anything after it.
         XCTAssertEqual(clock.sleeps, 20)
+    }
+
+    // MARK: Fullscreen
+
+    /// Entering fullscreen is the last thing the placement does, and the order is not cosmetic:
+    /// the transition replaces the window's frame outright, so a frame written afterwards is
+    /// thrown away by the window server.
+    func testASlotSavedFullscreenEntersFullscreenAfterTheFrameIsWritten() async {
+        let window = FakeAXWindow()
+        let clock = ScriptedClock()
+        clock.onSleep = { poll in if poll == 2 { window.fullscreenState = true } }
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: true,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.frameWrites, [frame])
+        XCTAssertEqual(window.fullscreenWrites, 1)
+        XCTAssertEqual(
+            window.fullscreenAtFrameWrite,
+            [false],
+            "the frame has to be written while the window is still out of fullscreen"
+        )
+    }
+
+    /// Leaving fullscreen is the opposite half, and it is a *precondition* rather than a finishing
+    /// touch: a fullscreen window swallows a frame write and answers `.success` for it, exactly as
+    /// a minimized one does. So it happens before the frame, not after.
+    func testASlotSavedNotFullscreenLeavesFullscreenBeforeTheFrameIsWritten() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        let clock = ScriptedClock()
+        clock.onSleep = { poll in if poll == 2 { window.fullscreenState = false } }
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.frameWrites, [frame])
+        XCTAssertEqual(window.fullscreenWrites, 1)
+        XCTAssertEqual(
+            window.fullscreenAtFrameWrite,
+            [false],
+            "the window has to be out of fullscreen before its frame is written"
+        )
+    }
+
+    /// A window that will not come out of fullscreen is the same failure as one that will not come
+    /// out of the Dock: nothing written after it lands, so the frame write is not even attempted
+    /// and the slot is reported rather than claimed.
+    func testAWindowThatWillNotLeaveFullscreenIsReportedRatherThanWrittenTo() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
+            minimized: false,
+            zoomed: false,
+            fullscreen: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertTrue(window.frameWrites.isEmpty, "a fullscreen window swallows the frame write")
+        XCTAssertEqual(clock.sleeps, 40, "bounded: one wedged window cannot stall the restore")
+    }
+
+    /// A window whose fullscreen write is accepted but never takes — measured: a write that lands
+    /// mid-transition answers `.success` and does nothing — is already on its saved frame, so this
+    /// is the partial success a refused zoom reports, not a failure. A window that refuses the
+    /// write outright, as Activity Monitor and System Settings do, is the test after next.
+    func testAFullscreenThatNeverTakesIsReportedAsStateNotRestored() async {
+        let window = FakeAXWindow()
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: true,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .stateNotRestored)
+        XCTAssertEqual(window.frame, frame, "the frame was applied even though the fullscreen was not")
+        // 2s of 50ms polls — the deminiaturize bound rather than the zoom one, because a measured
+        // fullscreen transition takes over a second where a zoom animates in a quarter of one.
+        XCTAssertEqual(clock.sleeps, 40, "bounded, like every other state wait here")
+    }
+
+    /// A workspace written before the field existed says nothing about fullscreen, and nil is not
+    /// false: such a slot must neither push a window into fullscreen nor drag one out. This is
+    /// exactly the behaviour every build before this one had.
+    func testANilFullscreenLeavesTheWindowAlone() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        let clock = ScriptedClock()
+
+        _ = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 0, y: 0, width: 100, height: 100),
+            minimized: false,
+            zoomed: false,
+            fullscreen: nil,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(window.fullscreenState, true)
+        XCTAssertEqual(window.fullscreenWrites, 0)
+        XCTAssertEqual(clock.sleeps, 0)
+    }
+
+    /// Activity Monitor and System Settings refuse the write outright — the plan's measurement,
+    /// "settable: no" — which is a different case from a write that is accepted and never takes.
+    /// A refusal is an answer, so no time is spent polling for a state that was never coming.
+    func testAFullscreenWriteThatIsRefusedFailsAtOnceWithoutTheTwoSecondWait() async {
+        let window = FakeAXWindow()
+        window.fullscreenResult = .attributeUnsupported
+        let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: frame,
+            minimized: false,
+            zoomed: false,
+            fullscreen: true,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .stateNotRestored)
+        XCTAssertEqual(window.frame, frame, "the frame was applied even though the fullscreen was refused")
+        XCTAssertEqual(clock.sleeps, 0, "a refusal is an answer; nothing to poll for")
+    }
+
+    /// The leave direction, refused: the precondition failed and the frame must not be written,
+    /// and again there is nothing to wait for.
+    func testARefusedLeaveOfFullscreenIsReportedWithoutWaiting() async {
+        let window = FakeAXWindow(isFullscreen: true)
+        window.fullscreenResult = .attributeUnsupported
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
+            minimized: false,
+            zoomed: false,
+            fullscreen: false,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .refused)
+        XCTAssertTrue(window.frameWrites.isEmpty)
+        XCTAssertEqual(clock.sleeps, 0)
+    }
+
+    /// A workspace written before fullscreen was recorded says nothing about it, and the placement
+    /// must not undo it by the back door: the green button on a fullscreen window *leaves*
+    /// fullscreen, so a fullscreen window whose frame happens to read as zoomed must not have it
+    /// pressed.
+    func testAnUnknownFullscreenStateDoesNotPressTheZoomButton() async {
+        let window = FakeAXWindow(isZoomed: true, isFullscreen: true)
+        let clock = ScriptedClock()
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
+            minimized: false,
+            zoomed: false,
+            fullscreen: nil,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.zoomPresses, 0, "the zoom button would have taken the window out of fullscreen")
+        XCTAssertEqual(window.fullscreenState, true)
+        XCTAssertEqual(window.fullscreenWrites, 0)
+    }
+
+    /// Both toggles on is a state macOS cannot show — a fullscreen window cannot be minimized —
+    /// and capture never produces it. Restore honours the minimize and skips the fullscreen, so
+    /// the slot is not reported as failed for a state it was never going to reach.
+    func testASlotSavedMinimizedAndFullscreenIsMinimizedWithoutEnteringFullscreen() async {
+        let window = FakeAXWindow()
+        let clock = ScriptedClock()
+        clock.onSleep = { _ in window.minimizedState = true }
+
+        let outcome = await WindowPlacement.apply(
+            to: window,
+            cocoaFrame: CGRect(x: 10, y: 20, width: 300, height: 200),
+            minimized: true,
+            zoomed: false,
+            fullscreen: true,
+            bundleIdentifier: safariID,
+            clock: clock
+        )
+
+        XCTAssertEqual(outcome, .placed)
+        XCTAssertEqual(window.fullscreenWrites, 0)
+        XCTAssertEqual(window.minimizeWrites, 1)
+    }
+
+    // MARK: Documents
+
+    /// The point of the whole feature. Arguments reach a *new* instance only, so a running app
+    /// ignores them; opening a document works either way, which is what lets a cold start
+    /// reproduce every window instead of the one the app felt like restoring.
+    func testASlotWithADocumentOpensItRatherThanRelyingOnTheAppsOwnSession() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [safariSlot(title: "GitHub", document: "https://example.com/docs")]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean)])
+        XCTAssertEqual(opener.opened.map(\.document.absoluteString), ["https://example.com/docs"])
+        XCTAssertEqual(opener.opened.map(\.app), [URL(fileURLWithPath: safariPath)])
+        XCTAssertTrue(
+            launcher.opens.isEmpty,
+            "opening a document launches the app on its own; a second open is wasted work"
+        )
+    }
+
+    /// Two slots of one app with two documents open two documents — exactly the case a cold start
+    /// could not reproduce before, because the app decides for itself what to restore.
+    ///
+    /// Under `moveExistingWindows` neither asks for a new instance, so the two documents land as
+    /// two windows of one app rather than as two copies of the app.
+    func testEverySlotWithADocumentGetsItsOwnOpen() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow, safariWindow2]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "GitHub", document: "https://example.com/a"),
+                    safariSlot(title: "Apple", document: "https://example.com/b"),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)])
+        XCTAssertEqual(
+            opener.opened.map(\.document.absoluteString),
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertTrue(
+            opener.opened.allSatisfy { !$0.configuration.createsNewApplicationInstance },
+            "two documents belong in one app, not in two copies of it"
+        )
+    }
+
+    /// A slot with no document behaves exactly as it did before any of this existed.
+    func testASlotWithNoDocumentStillLaunchesTheAppNormally() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(moveExistingWindows: false, windows: [safariSlot(title: "GitHub")])
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean)])
+        XCTAssertTrue(opener.opened.isEmpty, "no document, no document open")
+        XCTAssertEqual(launcher.opens.map(\.url), [URL(fileURLWithPath: safariPath)])
+    }
+
+    /// A refused open is a failure the user can act on — a moved file, a URL the app will not
+    /// take — and not a silent fallthrough into the window wait, which would spend the whole
+    /// eight-second budget and then report the vaguer "No window".
+    func testADocumentThatCannotBeOpenedFailsTheSlot() async {
+        struct Refused: Error {}
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        opener.openError = Refused()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [safariSlot(title: "GitHub", document: "/Users/me/gone.txt")]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.documentFailed)])
+    }
+
+    /// A LaunchServices hang is a hang whichever call was waiting. Blaming the document would send
+    /// the user to clear a field that is fine.
+    func testADocumentOpenThatHangsTimesOutRatherThanBlamingTheDocument() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        opener.hangDocuments = [URL(string: "https://example.com/slow")!]
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(
+            launcher: launcher,
+            opener: opener,
+            windows: windows,
+            launchTimeout: .milliseconds(50)
+        )
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [safariSlot(title: "GitHub", document: "https://example.com/slow")]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.failed(.launchTimedOut)])
+    }
+
+    /// A Cancel that lands while a document open is hung ends the restore as cancelled, through
+    /// the same bounded wait a plain launch has — not as a failure of the document.
+    func testCancelDuringADocumentOpenEndsTheRestoreAsCancelled() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        opener.hangDocuments = [URL(string: "https://example.com/slow")!]
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [safariSlot(title: "GitHub", document: "https://example.com/slow")]
+            )
+        ) { progress in
+            if progress[0].status == .launching {
+                // Lands once the open has suspended, which is where a Cancel click arrives.
+                Task { @MainActor in service.cancel() }
+            }
+        }
+
+        XCTAssertEqual(result.map(\.status), [.cancelled])
+    }
+
+    /// With "move existing windows" off, the first document slot of a group launches the app and
+    /// the rest join the instance it launched; the planner's decision has to reach the opener.
+    func testTheFirstDocumentSlotOfAGroupLaunchesAFreshInstanceAndTheRestJoinIt() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow, safariWindow2]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: false,
+                windows: [
+                    safariSlot(title: "GitHub", document: "https://example.com/a"),
+                    safariSlot(title: "Apple", document: "https://example.com/b"),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .placed(.clean)])
+        XCTAssertEqual(opener.opened.map(\.configuration.createsNewApplicationInstance), [true, false])
+    }
+
+    /// The slot's own arguments travel with the open, tokenised the way a plain launch's are.
+    func testASlotsArgumentsReachTheDocumentOpen() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, opener: opener, windows: windows)
+
+        _ = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "GitHub", document: "https://example.com/docs", arguments: "--profile work"),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(opener.opened.map(\.configuration.arguments), [["--profile", "work"]])
+    }
+
+    /// Measured: Safari and Brave both open a document handed to a running instance as a tab of
+    /// an existing window, not as a window of its own. This pins what the user then sees for the
+    /// second slot — the whole window budget spent, then "No window" — so the help can say so.
+    func testADocumentOpenThatAddsNoWindowFailsTheSlotAsNoWindow() async {
+        let launcher = FakeLauncher()
+        launcher.urls = [safariID: URL(fileURLWithPath: safariPath)]
+        let opener = FakeDocumentOpener()
+        let apps = FakeApps()
+        apps.running = [safariID]
+        let windows = FakeWindows(windowsByBundle: [safariID: [safariWindow]])
+        let service = makeService(launcher: launcher, apps: apps, opener: opener, windows: windows)
+
+        let result = await service.launch(
+            makeDocument(
+                moveExistingWindows: true,
+                windows: [
+                    safariSlot(title: "GitHub", document: "https://example.com/a"),
+                    safariSlot(title: "Apple", document: "https://example.com/b"),
+                ]
+            )
+        ) { _ in }
+
+        XCTAssertEqual(opener.opened.count, 2, "both documents were opened")
+        XCTAssertEqual(result.map(\.status), [.placed(.clean), .failed(.noWindow)])
     }
 
     func testEmptyDocumentReturnsEmptyWithoutLaunching() async {
@@ -2008,6 +2468,7 @@ final class LaunchServiceTests: XCTestCase {
     private func makeService(
         launcher: FakeLauncher,
         apps: FakeApps = FakeApps(),
+        opener: FakeDocumentOpener = FakeDocumentOpener(),
         windows: FakeWindows,
         placer: FakePlacer = FakePlacer(),
         displays: [LiveDisplay]? = nil,
@@ -2018,6 +2479,7 @@ final class LaunchServiceTests: XCTestCase {
     ) -> LaunchService {
         LaunchService(
             launcher: launcher,
+            documentOpener: opener,
             apps: apps,
             windows: windows,
             placer: placer,
@@ -2098,7 +2560,9 @@ final class LaunchServiceTests: XCTestCase {
         x: Double = 0,
         y: Double = 0,
         width: Double = 800,
-        height: Double = 900
+        height: Double = 900,
+        document: String? = nil,
+        arguments: String = ""
     ) -> SavedWindow {
         savedWindow(
             bundleIdentifier: safariID,
@@ -2109,7 +2573,9 @@ final class LaunchServiceTests: XCTestCase {
             x: x,
             y: y,
             width: width,
-            height: height
+            height: height,
+            document: document,
+            arguments: arguments
         )
     }
 
@@ -2124,7 +2590,9 @@ final class LaunchServiceTests: XCTestCase {
         width: Double,
         height: Double,
         minimized: Bool = false,
-        zoomed: Bool = false
+        zoomed: Bool = false,
+        document: String? = nil,
+        arguments: String = ""
     ) -> SavedWindow {
         SavedWindow(
             bundleIdentifier: bundleIdentifier,
@@ -2138,7 +2606,8 @@ final class LaunchServiceTests: XCTestCase {
             height: height,
             minimized: minimized,
             zoomed: zoomed,
-            arguments: ""
+            document: document,
+            arguments: arguments
         )
     }
 }
@@ -2241,6 +2710,24 @@ extension MatchableWindow {
 }
 
 @MainActor
+/// Records what was opened where. Deliberately separate from `FakeLauncher`: the point of the
+/// whole feature is that these are two different calls with two different guarantees, and a test
+/// that could not tell them apart would not be testing the difference.
+private final class FakeDocumentOpener: DocumentOpening {
+    var opened: [(document: URL, app: URL, configuration: LaunchConfiguration)] = []
+    var openError: (any Error)?
+    /// Hang, but honour cancellation — the way a cooperative async call would.
+    var hangDocuments: Set<URL> = []
+
+    func open(_ url: URL, withApplicationAt app: URL, configuration: LaunchConfiguration) async throws {
+        if hangDocuments.contains(url) {
+            try await Task.sleep(for: .seconds(60))
+        }
+        if let openError { throw openError }
+        opened.append((document: url, app: app, configuration: configuration))
+    }
+}
+
 private final class FakeWindows: WindowCatalog {
     var windowsByBundle: [String: [MatchableWindow]]
     var requireOpenBeforeWindows = false
@@ -2290,6 +2777,7 @@ private final class FakePlacer: WindowPlacing {
         var cocoaFrame: CGRect
         var minimized: Bool
         var zoomed: Bool
+        var fullscreen: Bool?
     }
 
     var placements: [Placement] = []
@@ -2303,10 +2791,22 @@ private final class FakePlacer: WindowPlacing {
         self.refuseIDs = refuseIDs
     }
 
-    func place(_ window: MatchableWindow, cocoaFrame: CGRect, minimized: Bool, zoomed: Bool) async -> PlacementOutcome {
+    func place(
+        _ window: MatchableWindow,
+        cocoaFrame: CGRect,
+        minimized: Bool,
+        zoomed: Bool,
+        fullscreen: Bool?
+    ) async -> PlacementOutcome {
         onPlace(window)
         placements.append(
-            Placement(window: window, cocoaFrame: cocoaFrame, minimized: minimized, zoomed: zoomed)
+            Placement(
+                window: window,
+                cocoaFrame: cocoaFrame,
+                minimized: minimized,
+                zoomed: zoomed,
+                fullscreen: fullscreen
+            )
         )
         if refuseIDs.contains(window.id) { return .refused }
         return outcomes[window.id] ?? .placed
@@ -2360,9 +2860,10 @@ private final class FakeAXWindow: PlaceableWindow {
         set { minimizedState = newValue }
     }
 
-    init(isMinimized: Bool = false, isZoomed: Bool = false) {
+    init(isMinimized: Bool = false, isZoomed: Bool = false, isFullscreen: Bool? = false) {
         self.minimizedState = isMinimized
         self.frame = isZoomed ? zoomTarget : userFrame
+        self.fullscreenState = isFullscreen
     }
 
     /// Mirrors `AXWindow.unminimize`: the write is skipped on a confirmed false and on nothing
@@ -2402,6 +2903,27 @@ private final class FakeAXWindow: PlaceableWindow {
         return .success
     }
 
+    /// A real attribute, unlike zoom, so the fake stores it rather than deriving it from the
+    /// frame. Nil is the read that failed.
+    var fullscreenState: Bool?
+    /// What the fullscreen write answers — Activity Monitor and System Settings refuse it outright,
+    /// measured — and separately, whether an accepted write ever takes; see `setFullScreen`.
+    var fullscreenResult: AXError = .success
+    private(set) var fullscreenWrites = 0
+    /// Whether the window was fullscreen as each frame write landed. It matters in both
+    /// directions: a fullscreen window swallows the write, and entering fullscreen afterwards
+    /// throws the frame away.
+    private(set) var fullscreenAtFrameWrite: [Bool] = []
+
+    /// Accepts the write without flipping the state, for the same reason `setMinimized` does —
+    /// and measured on a real window, which is stronger than the analogy: the attribute flips when
+    /// the transition starts, and a write that lands before it finishes is accepted and then does
+    /// nothing at all.
+    func setFullScreen(_ fullscreen: Bool) -> AXError {
+        fullscreenWrites += 1
+        return fullscreenResult
+    }
+
     /// What the frame write answers. The whole `stateUnknown` design rests on the frame write
     /// being the one step that can still report on a window nothing else could read, so a refusal
     /// there has to be exercised.
@@ -2410,6 +2932,7 @@ private final class FakeAXWindow: PlaceableWindow {
     func setCocoaFrame(_ frame: CGRect) -> AXError {
         frameWrites.append(frame)
         minimizedAtFrameWrite.append(isMinimized)
+        fullscreenAtFrameWrite.append(fullscreenState ?? false)
         guard frameResult == .success else { return frameResult }
         self.frame = frame
         return .success

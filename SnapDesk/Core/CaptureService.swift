@@ -40,6 +40,12 @@ struct AXWindowSnapshot: Equatable {
     /// Nil when the read failed, as opposed to false for a window that is simply up; see
     /// `AXWindow.minimizedState`.
     var minimized: Bool?
+    /// True fullscreen, read from a real attribute rather than inferred the way zoom must be.
+    /// Nil for a read that failed; see `AXWindow.fullscreenState`.
+    var fullscreen: Bool?
+    /// Whatever the window vends as its document, unchecked. A candidate rather than a URL; see
+    /// `AXWindow.documentURL`, and `WorkspaceDocumentReference` for what may actually be saved.
+    var document: String?
     /// See `CaptureFilter.isChromelessStandardWindow`.
     var hasTitleBarButtons: Bool
 }
@@ -243,6 +249,28 @@ struct CaptureService {
                 // Inferred against the display list this capture records, from the very frame it
                 // saves beside it, so the two cannot disagree.
                 zoomed: AXWindow.isZoomed(frame: item.frame, on: liveDisplays),
+                // Read rather than inferred, which is the whole difference from `zoomed` above.
+                // An unreadable state stays nil: saved as `false` it would drag the window out of
+                // fullscreen on every later restore. Unlike the frame and the minimized state, it
+                // does not disqualify the window — nil is a value this field is allowed to hold.
+                fullscreen: item.window.fullscreen,
+                // Filtered rather than passed through: the attribute is not a URL field, and a
+                // capture must never produce a document the loader would then refuse. That
+                // invariant is pinned by `testCaptureNeverRecordsAWindowValidationWouldReject`.
+                // An unusable value costs the document, never the window — and is logged rather
+                // than reported: a title that landed in the attribute is the ordinary case for
+                // several apps, and an alert for each would be noise, while "why is this field
+                // empty" still has an answer. Stored trimmed, because the check trims.
+                document: item.window.document.flatMap { vended in
+                    let trimmed = vended.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard WorkspaceDocumentReference.isUsable(trimmed) else {
+                        Log.capture.info(
+                            "dropping the document of a \(item.app.name, privacy: .public) window: not a location"
+                        )
+                        return nil
+                    }
+                    return trimmed
+                },
                 arguments: ""
             )
         }
@@ -325,6 +353,8 @@ struct AXWindowCapturer: AXCapturing {
                 subrole: window.subrole,
                 cocoaFrame: window.cocoaFrame,
                 minimized: window.minimizedState,
+                fullscreen: window.fullscreenState,
+                document: window.documentURL,
                 hasTitleBarButtons: window.hasTitleBarButtons
             )
         }

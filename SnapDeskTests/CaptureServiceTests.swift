@@ -270,6 +270,95 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertEqual(doc.windows.map(\.minimized), [false])
     }
 
+    /// The contrast with the test above is the point. Zoom is *inferred* from the frame, because
+    /// macOS vends no attribute for it; fullscreen is a real attribute and is read. So a window
+    /// can be fullscreen while its recorded frame is nothing like the visible frame, and this is
+    /// the case that would be wrong if fullscreen were inferred the way zoom has to be.
+    func testFullscreenIsReadRatherThanInferredFromTheFrame() {
+        let full = snapshot(
+            cgWindowID: 10,
+            title: "Docs",
+            cocoaFrame: CGRect(x: 40, y: 40, width: 400, height: 300),
+            fullscreen: true
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [full]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.map(\.fullscreen), [true])
+        XCTAssertEqual(doc.windows.map(\.zoomed), [false], "a small frame is not zoomed, fullscreen or not")
+    }
+
+    /// A read that failed stays nil rather than collapsing to false — the rule every persisted
+    /// state here follows. Saved as `false`, a window whose fullscreen state was never actually
+    /// read would be dragged out of fullscreen by every later restore.
+    ///
+    /// Unlike the frame and the minimized state, an unreadable fullscreen does not disqualify the
+    /// window: nil is a value this field is allowed to hold, meaning "not recorded".
+    func testAFullscreenStateThatCouldNotBeReadIsSavedAsNilRatherThanFalse() {
+        let unknown = snapshot(
+            cgWindowID: 10,
+            title: "Docs",
+            cocoaFrame: CGRect(x: 40, y: 40, width: 400, height: 300),
+            fullscreen: nil
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [unknown]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.count, 1, "an unreadable fullscreen does not disqualify the window")
+        XCTAssertNil(doc.windows[0].fullscreen)
+    }
+
+    /// A usable document is kept; one that is not a location is dropped rather than saved. The
+    /// attribute is not a URL field — some apps put a window title in it — and a value that
+    /// reaches the file would be handed to LaunchServices on every later restore.
+    func testAUsableDocumentIsRecordedAndAnUnusableOneIsDropped() {
+        let frame = CGRect(x: 100, y: 138, width: 800, height: 600)
+        let withURL = snapshot(cgWindowID: 10, title: "Docs", cocoaFrame: frame, document: "https://example.com/a")
+        let withJunk = snapshot(cgWindowID: 11, title: "Junk", cocoaFrame: frame, document: "Untitled 3")
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [withURL, withJunk]]),
+            order: FakeOrder(ids: [10, 11]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        let doc = service.capture().document
+
+        XCTAssertEqual(doc.windows.map(\.title), ["Docs", "Junk"], "the junk document must not cost the window")
+        XCTAssertEqual(doc.windows.map(\.document), ["https://example.com/a", nil])
+    }
+
+    /// Stored trimmed, because the check that admits it trims: a value saved with its whitespace
+    /// would be rewritten by the editor's field on first sight and dirty a file nobody edited.
+    func testACapturedDocumentIsStoredTrimmed() {
+        let padded = snapshot(
+            cgWindowID: 10,
+            title: "Docs",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600),
+            document: "  https://example.com/a \n"
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [padded]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        XCTAssertEqual(service.capture().document.windows.map(\.document), ["https://example.com/a"])
+    }
+
     // MARK: What could not be read
 
     /// The failure this whole report exists for: an app that is busy when the hotkey fires does
@@ -420,11 +509,19 @@ final class CaptureServiceTests: XCTestCase {
             title: "Usable",
             cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600)
         )
+        // Not a location, and `validate()` refuses one. The window is still perfectly good, so the
+        // document has to be dropped without the window going with it.
+        let junkDocument = snapshot(
+            cgWindowID: 34,
+            title: "Junk document",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600),
+            document: "Untitled 3"
+        )
 
         let service = CaptureService(
             apps: FakeApps(running: [safari]),
-            ax: FakeAX(windowsByPid: [safari.pid: [zeroWidth, zeroHeight, negative, usable]]),
-            order: FakeOrder(ids: [30, 31, 32, 33]),
+            ax: FakeAX(windowsByPid: [safari.pid: [zeroWidth, zeroHeight, negative, usable, junkDocument]]),
+            order: FakeOrder(ids: [30, 31, 32, 33, 34]),
             displays: FakeDisplays(live: [display])
         )
 
@@ -435,7 +532,15 @@ final class CaptureServiceTests: XCTestCase {
             XCTAssertGreaterThan(window.width, 0, "\(window.title) was recorded with a size that is not positive")
             XCTAssertGreaterThan(window.height, 0, "\(window.title) was recorded with a size that is not positive")
         }
-        XCTAssertEqual(doc.windows.map(\.title), ["Negative", "Usable"], "only the degenerate sizes are dropped")
+        XCTAssertEqual(
+            doc.windows.map(\.title),
+            ["Negative", "Usable", "Junk document"],
+            "only the degenerate sizes are dropped"
+        )
+        XCTAssertNil(
+            doc.windows.first { $0.title == "Junk document" }?.document,
+            "the unusable document is dropped, but not the window"
+        )
         // The negative rect is recorded as the rectangle it describes, not as negative numbers.
         let repaired = try XCTUnwrap(doc.windows.first { $0.title == "Negative" })
         XCTAssertEqual(repaired.width, 400)
@@ -447,7 +552,9 @@ final class CaptureServiceTests: XCTestCase {
         title: String,
         subrole: String? = nil,
         cocoaFrame: CGRect?,
-        minimized: Bool? = false
+        minimized: Bool? = false,
+        fullscreen: Bool? = false,
+        document: String? = nil
     ) -> AXWindowSnapshot {
         AXWindowSnapshot(
             cgWindowID: cgWindowID,
@@ -455,6 +562,8 @@ final class CaptureServiceTests: XCTestCase {
             subrole: subrole,
             cocoaFrame: cocoaFrame,
             minimized: minimized,
+            fullscreen: fullscreen,
+            document: document,
             hasTitleBarButtons: true
         )
     }

@@ -127,6 +127,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     @MainActor
     struct Dependencies {
         var recents: RecentsStore
+        var workspaceShortcuts: WorkspaceShortcuts
+        /// When each workspace was last restored. Kept out of the document on purpose; see
+        /// `WorkspaceLibrary`.
+        var library: WorkspaceLibrary
+        /// The workspace to restore when SnapDesk starts, if the user has chosen one.
+        ///
+        /// Deliberately "when SnapDesk starts" rather than "at login": the app cannot reliably
+        /// tell a login launch from any other, and a setting that means exactly what it says is
+        /// better than one that guesses and is wrong some of the time.
+        var startupWorkspace: @MainActor () -> URL?
+        /// Clears the startup workspace when it is this file; see `forget(_:)`.
+        var forgetStartupWorkspace: @MainActor (URL) -> Void
         var capture: @MainActor () -> CaptureOutcome
         var restorer: any WorkspaceRestoring
         var hud: any LaunchHUDPresenting
@@ -134,12 +146,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         /// Answers a command refused for want of Accessibility. Names the command, so the log
         /// line and the explanation the user gets both say what was refused.
         var refuseUntrusted: @MainActor (String) -> Void
+        /// The immediate answer to a key that reached SnapDesk and had nothing to do — an
+        /// unassigned workspace slot. It is the one signal that tells that case apart from a
+        /// combination another app owns, which fails in silence.
+        var beep: @MainActor () -> Void
         var presentAlert: @MainActor (_ title: String, _ detail: String?) -> Void
 
         static var production: Dependencies {
             let captureService = CaptureService()
             return Dependencies(
                 recents: RecentsStore(),
+                workspaceShortcuts: WorkspaceShortcuts(),
+                library: WorkspaceLibrary(),
+                startupWorkspace: { AppSettings.shared.startupWorkspace },
+                forgetStartupWorkspace: { AppSettings.shared.forgetStartupWorkspace($0) },
                 capture: { captureService.capture() },
                 restorer: LaunchService(),
                 hud: LaunchHUDController(),
@@ -150,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
                     NSSound.beep()
                     AccessibilityAuth.requestIfNeeded(for: command)
                 },
+                beep: { NSSound.beep() },
                 presentAlert: { title, detail in
                     let alert = NSAlert()
                     alert.messageText = title
@@ -226,7 +247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         )
         hotkeys = HotkeyCenter(
             capturing: self,
-            onEditor: { [weak self] in self?.editorOpener(nil) }
+            onEditor: { [weak self] in self?.editorOpener(nil) },
+            onWorkspace: { [weak self] slot in self?.launchWorkspace(inSlot: slot) }
         )
         hotkeys?.start()
         Log.app.info("launched: trusted=\(AccessibilityAuth.isTrusted) effective=\(AccessibilityAuth.isEffectivelyTrusted)")
@@ -241,6 +263,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         pendingOpens = []
         for url in urls {
             open(url)
+        }
+        // After the buffer, never before it: a file the user double-clicked is why the app is
+        // launching at all, so it goes first and the startup workspace queues behind it. Both go
+        // through `open`, so a startup workspace that has been deleted says so. And once only:
+        // a double-clicked file that *is* the startup workspace would otherwise restore twice,
+        // which with documents means every page opened twice.
+        if let startup = dependencies.startupWorkspace(),
+           !urls.contains(where: { WorkspaceBookmark.sameFile($0, startup) })
+        {
+            open(startup)
         }
     }
 
@@ -270,6 +302,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         return .terminateNow
     }
 
+    /// Opens the workspace bound to a hotkey slot.
+    ///
+    /// Goes through `launch(url:)` rather than repeating any of it, so a workspace opened by a
+    /// key gets the same trust check, the same validation, the same recents entry and the same
+    /// "could not be found" alert as one opened from Finder.
+    func launchWorkspace(inSlot slot: Int) {
+        guard let url = dependencies.workspaceShortcuts.workspace(for: slot) else {
+            // Not an error: a key can be bound before a workspace is assigned to it. The beep is
+            // the one signal that the key reached SnapDesk at all — a combination another app
+            // owns fails identically otherwise, and `HotkeyCenter` cannot tell the two apart.
+            Log.hotkeys.notice("workspace slot \(slot) has no workspace assigned")
+            dependencies.beep()
+            return
+        }
+        launch(url: url)
+    }
+
+    /// Every store that could still point at a file the editor has moved to the Trash lets go of
+    /// it: the hotkey slots, the startup setting and the library's launch date. Measured, a
+    /// bookmark follows a file into the Trash and resolves there, so a binding left behind would
+    /// keep restoring a workspace the user deleted.
+    func forget(_ url: URL) {
+        dependencies.workspaceShortcuts.forget(url)
+        dependencies.forgetStartupWorkspace(url)
+        dependencies.library.forget(url)
+    }
+
     func launch(url: URL) {
         guard dependencies.accessibilityTrusted() else {
             dependencies.refuseUntrusted("restore")
@@ -282,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         do {
             let workspace = try WorkspaceDocument.load(from: url).validated()
             recents.add(url)
-            startLaunch(workspace)
+            startLaunch(workspace, recording: url)
         } catch let error as WorkspaceDocumentError {
             show(title: WorkspaceOpener.openFailureTitle(for: url), detail: WorkspaceOpener.detail(for: error))
         } catch {
@@ -303,7 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         case .failure(let rejection):
             show(title: "Cannot restore “\(document.name)”", detail: rejection.message)
         case .success(let workspace):
-            startLaunch(workspace)
+            startLaunch(workspace, recording: nil)
         }
     }
 
@@ -329,7 +388,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
     /// Chains restores rather than relying on `LaunchService`'s own gate: the HUD reset in
     /// `present(title:)` happens outside that gate, so without the chain a second restore would
     /// wipe the first one's rows while it was still running.
-    private func startLaunch(_ workspace: ValidatedWorkspace) {
+    /// `url` is the file to record in the library once the restore has put something on screen;
+    /// nil for the editor's in-memory restore, which has no file.
+    private func startLaunch(_ workspace: ValidatedWorkspace, recording url: URL?) {
         let document = workspace.document
         // A workspace with no slots has nothing to restore, and a HUD that opens with no rows
         // and dismisses itself 600ms later reads as a glitch. Say so instead.
@@ -353,6 +414,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
                 self?.dependencies.hud.update(progress)
             }
             Log.launch.info("\(Self.summary(of: result, workspace: document.name), privacy: .public)")
+            // Recorded once something is on screen, and only then: a restore the user cancelled,
+            // or one that placed nothing, is not a restore, and "Restored just now" on a workspace
+            // that never came back would put it at the top of the sidebar for nothing. A file
+            // that failed to load never gets here at all.
+            if let url, result.contains(where: \.status.isPlaced) {
+                self.dependencies.library.recordLaunch(of: url)
+            }
         }
     }
 
@@ -404,6 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
         if editorWindow == nil {
             editorWindow = EditorWindowController(
                 recents: recents,
+                library: dependencies.library,
                 capture: { [weak self] in
                     guard let self else { return nil }
                     guard self.dependencies.accessibilityTrusted() else {
@@ -414,6 +483,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
                 },
                 launch: { [weak self] document in
                     self?.launch(document: document)
+                },
+                launchFile: { [weak self] url in
+                    self?.launch(url: url)
+                },
+                forgetWorkspace: { [weak self] url in
+                    self?.forget(url)
                 }
             )
         }
@@ -426,7 +501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WorkspaceLaunching, Wo
 
     private func openSettings() {
         if settingsWindow == nil {
-            settingsWindow = SettingsWindowController()
+            settingsWindow = SettingsWindowController(shortcuts: dependencies.workspaceShortcuts)
         }
         settingsWindow?.showWindow(nil)
     }

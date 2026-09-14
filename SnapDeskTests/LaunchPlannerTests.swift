@@ -40,7 +40,8 @@ final class LaunchPlannerTests: XCTestCase {
         bundleIdentifier: String,
         bundlePath: String,
         name: String,
-        arguments: String
+        arguments: String,
+        document: String? = nil
     ) -> SavedWindow {
         SavedWindow(
             bundleIdentifier: bundleIdentifier,
@@ -54,6 +55,7 @@ final class LaunchPlannerTests: XCTestCase {
             height: 100,
             minimized: false,
             zoomed: false,
+            document: document,
             arguments: arguments
         )
     }
@@ -173,5 +175,244 @@ final class LaunchPlannerTests: XCTestCase {
 
     func testPlaceOrderEmpty() {
         XCTAssertEqual(LaunchPlanner.placeOrder(windowCount: 0), [])
+    }
+
+    // MARK: Documents
+
+    /// Every document slot opens, which is the opposite of the group rule for plain launches
+    /// where only the first slot opens at all. Each open is what brings that slot's window into
+    /// being, so skipping the second one is how three saved windows came back as one.
+    func testEveryDocumentSlotOpensEvenWhenTheGroupWouldOtherwiseReuse() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: true,
+            displays: [],
+            windows: [
+                savedWindow(
+                    bundleIdentifier: safariID,
+                    bundlePath: safariPath,
+                    name: "Safari",
+                    arguments: "",
+                    document: "https://example.com/a"
+                ),
+                savedWindow(
+                    bundleIdentifier: safariID,
+                    bundlePath: safariPath,
+                    name: "Safari",
+                    arguments: "",
+                    document: "https://example.com/b"
+                ),
+            ]
+        )
+
+        let actions = LaunchPlanner.plan(document: document, runningBundleIDs: [safariID])
+
+        XCTAssertEqual(
+            actions,
+            [
+                .openDocument(url: URL(string: "https://example.com/a")!, arguments: [], newInstance: false),
+                .openDocument(url: URL(string: "https://example.com/b")!, arguments: [], newInstance: false),
+            ]
+        )
+    }
+
+    /// With "move existing windows" off, only the group's first document slot asks for a new
+    /// instance. Otherwise three saved pages would open three copies of the browser instead of
+    /// three windows in one.
+    func testOnlyTheFirstDocumentSlotOfAGroupAsksForANewInstance() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: false,
+            displays: [],
+            windows: [
+                savedWindow(
+                    bundleIdentifier: safariID,
+                    bundlePath: safariPath,
+                    name: "Safari",
+                    arguments: "",
+                    document: "https://example.com/a"
+                ),
+                savedWindow(
+                    bundleIdentifier: safariID,
+                    bundlePath: safariPath,
+                    name: "Safari",
+                    arguments: "",
+                    document: "https://example.com/b"
+                ),
+            ]
+        )
+
+        let actions = LaunchPlanner.plan(document: document, runningBundleIDs: [])
+
+        XCTAssertEqual(
+            actions.map { action -> Bool? in
+                if case .openDocument(_, _, let newInstance) = action { return newInstance }
+                return nil
+            },
+            [true, false]
+        )
+    }
+
+    /// A document that is not a location cannot be opened, so the slot falls back to the ordinary
+    /// launch rules rather than planning an open that would certainly fail. Capture already
+    /// filters these out; a hand-edited file is refused by `validate()`. This is the third line.
+    func testASlotWhoseDocumentIsNotUsableFallsBackToAPlainLaunch() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: true,
+            displays: [],
+            windows: [
+                savedWindow(
+                    bundleIdentifier: safariID,
+                    bundlePath: safariPath,
+                    name: "Safari",
+                    arguments: "",
+                    document: "Untitled 3"
+                ),
+            ]
+        )
+
+        let actions = LaunchPlanner.plan(document: document, runningBundleIDs: [])
+
+        XCTAssertEqual(actions, [.launch(arguments: [], newInstance: false)])
+    }
+
+    /// With "move existing windows" off and the app already running, the pre-existing instance's
+    /// windows are off limits — and an open that names no instance could land in it, where the
+    /// restore would never see the window. So every document slot asks for an instance of its
+    /// own, exactly as every plain slot does in that mode.
+    func testEveryDocumentSlotOfARunningAppAsksForANewInstanceWhenExistingWindowsAreOffLimits() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: false,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: "", document: "https://example.com/a"),
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: "", document: "https://example.com/b"),
+            ]
+        )
+
+        let actions = LaunchPlanner.plan(document: document, runningBundleIDs: [safariID])
+
+        XCTAssertEqual(
+            actions,
+            [
+                .openDocument(url: URL(string: "https://example.com/a")!, arguments: [], newInstance: true),
+                .openDocument(url: URL(string: "https://example.com/b")!, arguments: [], newInstance: true),
+            ]
+        )
+    }
+
+    /// A group with a plain slot and a document slot under "move existing windows": the document
+    /// opens whatever the group rule says, and the plain slots follow that rule unchanged.
+    func testAMixedGroupUnderMoveExistingOpensTheDocumentAndReusesTheRest() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: true,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: ""),
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: "", document: "https://example.com/b"),
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: ""),
+            ]
+        )
+
+        XCTAssertEqual(
+            LaunchPlanner.plan(document: document, runningBundleIDs: [safariID]),
+            [.reuse, .openDocument(url: URL(string: "https://example.com/b")!, arguments: [], newInstance: false), .reuse]
+        )
+        XCTAssertEqual(
+            LaunchPlanner.plan(document: document, runningBundleIDs: []),
+            [
+                .launch(arguments: [], newInstance: false),
+                .openDocument(url: URL(string: "https://example.com/b")!, arguments: [], newInstance: false),
+                .reuse,
+            ]
+        )
+    }
+
+    /// An app whose Info.plist forbids a second instance forces the reuse mode for documents too:
+    /// asking it for a new instance would only re-activate the one it has.
+    func testASingleInstanceAppOpensEveryDocumentWithoutAskingForANewInstance() {
+        let settingsID = "com.apple.systempreferences"
+        let settingsPath = "/System/Applications/System Settings.app"
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Settings",
+            moveExistingWindows: false,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: settingsID, bundlePath: settingsPath, name: "Settings", arguments: "", document: "/Users/me/a.txt"),
+                savedWindow(bundleIdentifier: settingsID, bundlePath: settingsPath, name: "Settings", arguments: "", document: "/Users/me/b.txt"),
+            ]
+        )
+
+        let actions = LaunchPlanner.plan(
+            document: document,
+            runningBundleIDs: [settingsID],
+            prohibitsMultipleInstances: { bundleID, _ in bundleID == settingsID }
+        )
+
+        XCTAssertEqual(
+            actions.map { action -> Bool? in
+                if case .openDocument(_, _, let newInstance) = action { return newInstance }
+                return nil
+            },
+            [false, false]
+        )
+    }
+
+    /// Terminal and TextEdit vend a bare absolute path, which has to reach LaunchServices as a
+    /// file URL: `URL(string:)` would give it no scheme at all.
+    func testAnAbsolutePathDocumentIsPlannedAsAFileURL() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: true,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "TextEdit", arguments: "", document: "/Users/me/notes.txt"),
+            ]
+        )
+
+        let actions = LaunchPlanner.plan(document: document, runningBundleIDs: [])
+
+        XCTAssertEqual(
+            actions,
+            [.openDocument(url: URL(fileURLWithPath: "/Users/me/notes.txt"), arguments: [], newInstance: false)]
+        )
+    }
+
+    /// The mixed group with "move existing windows" off: every plain slot launches an instance of
+    /// its own as before, and the document slot joins whichever instance the group's first slot
+    /// launched when nothing was running — or takes its own when the app was.
+    func testAMixedGroupWithExistingWindowsOffLaunchesInstancesAndOpensTheDocument() {
+        let document = WorkspaceDocument(
+            version: WorkspaceDocument.currentVersion,
+            name: "Docs",
+            moveExistingWindows: false,
+            displays: [],
+            windows: [
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: ""),
+                savedWindow(bundleIdentifier: safariID, bundlePath: safariPath, name: "Safari", arguments: "", document: "https://example.com/b"),
+            ]
+        )
+        let open = { (newInstance: Bool) in
+            LaunchAction.openDocument(url: URL(string: "https://example.com/b")!, arguments: [], newInstance: newInstance)
+        }
+
+        XCTAssertEqual(
+            LaunchPlanner.plan(document: document, runningBundleIDs: []),
+            [.launch(arguments: [], newInstance: true), open(false)]
+        )
+        XCTAssertEqual(
+            LaunchPlanner.plan(document: document, runningBundleIDs: [safariID]),
+            [.launch(arguments: [], newInstance: true), open(true)]
+        )
     }
 }

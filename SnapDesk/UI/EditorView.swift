@@ -10,6 +10,9 @@ struct EditorView: View {
     var onReveal: () -> Void
     var onTrash: () -> Void
     var onLaunch: () -> Void
+    var onLaunchWorkspace: (URL) -> Void
+    var onChooseFolder: () -> Void
+    var onClearFolder: () -> Void
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onRemoveWindow: (Int) -> Void
@@ -25,6 +28,9 @@ struct EditorView: View {
             onReveal: onReveal,
             onTrash: onTrash,
             onLaunch: onLaunch,
+            onLaunchWorkspace: onLaunchWorkspace,
+            onChooseFolder: onChooseFolder,
+            onClearFolder: onClearFolder,
             onSave: onSave,
             onSaveAs: onSaveAs,
             onRemoveWindow: onRemoveWindow
@@ -42,6 +48,9 @@ private struct EditorSplitView: View {
     var onReveal: () -> Void
     var onTrash: () -> Void
     var onLaunch: () -> Void
+    var onLaunchWorkspace: (URL) -> Void
+    var onChooseFolder: () -> Void
+    var onClearFolder: () -> Void
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onRemoveWindow: (Int) -> Void
@@ -56,22 +65,44 @@ private struct EditorSplitView: View {
         .frame(minWidth: 760, minHeight: 420)
     }
 
+    /// The file name, or when it was last restored. The date is what explains the list's order,
+    /// so it replaces the file name rather than crowding in beside it.
+    private func subtitle(for item: EditorRecentItem) -> String {
+        guard let lastLaunched = item.lastLaunched else { return item.filename }
+        return "Restored \(Self.relative.localizedString(for: lastLaunched, relativeTo: Date()))"
+    }
+
+    private static let relative: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             List(selection: $host.selectedRecentID) {
-                Section("Recents") {
+                Section("Workspaces") {
                     if host.recents.isEmpty {
-                        Text("No Recents")
+                        Text(host.hasWorkspaceFolder ? "No Workspaces" : "No Recents")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(host.recents) { item in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.name)
-                                    .lineLimit(1)
-                                Text(item.filename)
+                            HStack(spacing: 6) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name)
+                                        .lineLimit(1)
+                                    Text(subtitle(for: item))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 4)
+                                // One click to restore, rather than select-then-Launch. Selecting
+                                // the row still opens it for editing, which is unchanged.
+                                Button("Launch") { onLaunchWorkspace(item.url) }
+                                    .buttonStyle(.borderless)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                    .help("Restore this workspace from its file")
                             }
                             .tag(item.id)
                             .contentShape(Rectangle())
@@ -85,11 +116,25 @@ private struct EditorSplitView: View {
                 onSelectRecent(item.url)
             }
 
+            if let notice = host.folderNotice {
+                // The setting is kept — the volume may come back — and the list falls back to
+                // recents; without this line that looks like an empty folder.
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+            }
+
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {
                 Button("Capture", action: onCapture)
                 Button("Open…", action: onOpen)
+                Button(host.hasWorkspaceFolder ? "Change Folder…" : "Choose Folder…", action: onChooseFolder)
+                if host.hasWorkspaceFolder {
+                    Button("Stop Listing Folder", action: onClearFolder)
+                }
                 Button("Remove from Recents", action: onRemoveRecent)
                     .disabled(host.selectedRecentID == nil && session.fileURL == nil)
                 Button("Reveal in Finder", action: onReveal)
@@ -129,6 +174,7 @@ private struct EditorSplitView: View {
 
             HStack {
                 Button("Launch", action: onLaunch)
+                    .help("Restore the workspace as it is in the editor, unsaved changes included")
                 Spacer()
                 Button("Save", action: onSave)
                     .keyboardShortcut("s", modifiers: .command)
@@ -180,6 +226,7 @@ private struct WindowSlotRow: View {
     var isSelected: Bool
     var onSelect: () -> Void
     var onRemove: () -> Void
+    @State private var documentText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -221,8 +268,24 @@ private struct WindowSlotRow: View {
             }
 
             HStack {
-                Toggle("Minimized", isOn: $window.minimized)
+                Toggle("Minimized", isOn: WindowStateToggles.minimized($window))
                 Toggle("Zoomed", isOn: $window.zoomed)
+                Toggle("Fullscreen", isOn: WindowStateToggles.fullscreen($window))
+            }
+
+            // The typed text lives here rather than in the document, so a half-typed URL stays
+            // on screen while `WindowDocumentField` keeps it out of the file — and the caption
+            // says so, or the field would show one thing while the file held another.
+            TextField("Document or URL", text: $documentText)
+                .textFieldStyle(.roundedBorder)
+                .onAppear { documentText = window.document ?? "" }
+                .onChange(of: documentText) { _, typed in
+                    WindowDocumentField.apply(typed, to: &window.document)
+                }
+            if let notice = WindowDocumentField.notice(for: documentText) {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
 
             TextField("Arguments", text: $window.arguments)
@@ -249,6 +312,88 @@ private struct WindowSlotRow: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 56)
         }
+    }
+}
+
+/// The Document field of a window row.
+///
+/// It has the same job `WindowSizeField` has — keep the document out of a state `validate()` would
+/// refuse at Save, rather than let the user type their way into an unsaveable file and be told
+/// about it afterwards. The difficulty is that a text field passes through every prefix of what is
+/// being typed, and "h", "ht", "htt" are each unopenable on their own.
+///
+/// So a value that is not (yet) a location leaves the stored document alone rather than clearing
+/// it: the last good value stands until a new good value replaces it, and emptying the field is
+/// the one way to clear it.
+enum WindowDocumentField {
+    enum Commit: Equatable {
+        /// The field was emptied, which is a real intent: drop the document.
+        case clear
+        /// A location that can actually be opened.
+        case store(String)
+        /// Not a location — very likely a URL half-typed. Leave what is stored alone.
+        case ignore
+    }
+
+    static func commit(_ text: String) -> Commit {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .clear }
+        guard WorkspaceDocumentReference.isUsable(trimmed) else { return .ignore }
+        return .store(trimmed)
+    }
+
+    static func apply(_ text: String, to document: inout String?) {
+        switch commit(text) {
+        case .clear:
+            document = nil
+        case .store(let value):
+            document = value
+        case .ignore:
+            break
+        }
+    }
+
+    /// What to say under the field while it holds text that is not stored. The last good value
+    /// stands, and the user has to be able to see that this text is not it — including while a
+    /// URL is still being typed, which is over as soon as it can be opened.
+    static func notice(for text: String) -> String? {
+        guard commit(text) == .ignore else { return nil }
+        return "Not a page or file SnapDesk can open, so it is not saved."
+    }
+}
+
+/// The Minimized and Fullscreen toggles of a window row, which cannot both be on: a fullscreen
+/// window has no minimize button, and restore would fail the slot for a state it could never
+/// reach. Turning one on turns the other off.
+///
+/// Fullscreen's stored field is `Bool?` and the toggle is `Bool`, and the missing third state is
+/// the point: nil means the workspace was written before fullscreen was recorded, which restore
+/// reads as "leave this window alone" rather than as false. A two-state toggle has nowhere to
+/// show that, so it displays nil as off — and a write always records an explicit value, because
+/// a user reaching for the toggle is an intent where an untouched old file is not.
+enum WindowStateToggles {
+    static func minimized(_ window: Binding<SavedWindow>) -> Binding<Bool> {
+        Binding(
+            get: { window.wrappedValue.minimized },
+            set: { on in
+                window.wrappedValue.minimized = on
+                if on, window.wrappedValue.fullscreen == true {
+                    window.wrappedValue.fullscreen = false
+                }
+            }
+        )
+    }
+
+    static func fullscreen(_ window: Binding<SavedWindow>) -> Binding<Bool> {
+        Binding(
+            get: { window.wrappedValue.fullscreen ?? false },
+            set: { on in
+                window.wrappedValue.fullscreen = on
+                if on {
+                    window.wrappedValue.minimized = false
+                }
+            }
+        )
     }
 }
 

@@ -248,6 +248,46 @@ struct AXWindow {
         zoomedState ?? false
     }
 
+    /// The document, page or folder the window is showing, when the app vends one.
+    ///
+    /// Measured on the window element itself, which is the whole reason capturing this is cheap:
+    /// Brave puts the page URL here, Terminal its working directory, TextEdit the open file.
+    /// Safari and Finder vend nothing at all, and some apps put a string here that is not a
+    /// location — so what comes back is a candidate, not a URL, and
+    /// `WorkspaceDocumentReference.isUsable` is what decides whether it may be saved.
+    var documentURL: String? {
+        stringValue(element, kAXDocumentAttribute)
+    }
+
+    /// macOS *does* vend this one, which is exactly what zoom does not: there is no `AXZoomed` in
+    /// any framework, so zoom is inferred from the frame above while fullscreen is simply read.
+    /// The SDK declares no constant for the attribute, the same situation as
+    /// `AXEnhancedUserInterface`, so the string is a literal.
+    private static let fullScreenAttribute = "AXFullScreen"
+
+    /// True fullscreen: the window on a Space of its own with the menu bar hidden. Not
+    /// `zoomedState`, which is the green button's *other* meaning — a window merely filling the
+    /// visible frame.
+    ///
+    /// Nil for a read that failed, never false. Capture saves this value, so the rule spelled out
+    /// on `minimizedState` applies here for the same reason.
+    var fullscreenState: Bool? {
+        boolValue(element, Self.fullScreenAttribute)
+    }
+
+    /// Measured settable on most apps and refused by fixed-size ones — Activity Monitor and
+    /// System Settings both refuse — so `.success` is the write being *accepted*, not the window
+    /// arriving in fullscreen. Read `fullscreenState` back afterwards, as
+    /// `WindowPlacement.ensureFullScreen` does.
+    @discardableResult
+    func setFullScreen(_ fullscreen: Bool) -> AXError {
+        let result = setBool(Self.fullScreenAttribute, fullscreen)
+        if result != .success {
+            Log.ax.notice("could not set AXFullScreen=\(fullscreen) (AXError \(result.rawValue))")
+        }
+        return result
+    }
+
     /// Presses the green zoom button, which is the only mechanism macOS offers — there is no zoom
     /// attribute to write. Returns `.attributeUnsupported` for a window that has no zoom button (a
     /// fixed-size utility window), which is a real outcome a caller may want to report, not a
