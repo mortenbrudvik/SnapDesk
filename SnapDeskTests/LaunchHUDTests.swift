@@ -136,7 +136,7 @@ final class LaunchHUDTests: XCTestCase {
             [
                 "Pending", "Launching", "Ready", "Placed", "Cancelled", "Failed: App not found",
                 "Placed (other window)", "Placed on LG UltraFine", "Placed on LG UltraFine (other window)",
-                "Failed: Zoom or minimize failed", "Failed: Window disappeared", "Failed: Could not read windows",
+                "Failed: Zoom, fullscreen or minimize failed", "Failed: Window disappeared", "Failed: Could not read windows",
             ]
         )
     }

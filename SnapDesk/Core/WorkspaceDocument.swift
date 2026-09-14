@@ -85,26 +85,26 @@ enum WorkspaceDocumentReference {
     /// to bound what a workspace file can make the app open.
     static let allowedSchemes: Set<String> = ["http", "https", "file"]
 
-    static func isUsable(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        // An absolute path, which is what Terminal and TextEdit actually vend, is unambiguous and
-        // needs no scheme.
-        if trimmed.hasPrefix("/") { return true }
-        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return false }
-        guard allowedSchemes.contains(scheme) else { return false }
-        // A scheme on its own is not a location: "https:" parses cleanly and opens nothing.
-        return !(url.host ?? "").isEmpty || !url.path.isEmpty
-    }
-
     /// The URL restore should hand to LaunchServices, or nil for a value that must not get there.
-    /// The same check `isUsable` applies, so nothing can be opened that could not be saved.
+    /// This is the single decision: `isUsable` is defined as "this answered something", so a value
+    /// that may be saved and one that can be opened cannot drift apart.
     static func url(for text: String) -> URL? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isUsable(trimmed) else { return nil }
-        // A bare absolute path is a file, and `URL(string:)` would give it no scheme at all.
+        guard !trimmed.isEmpty else { return nil }
+        // An absolute path, which is what Terminal and TextEdit actually vend, is unambiguous and
+        // needs no scheme — and `URL(string:)` would give it none at all.
         if trimmed.hasPrefix("/") { return URL(fileURLWithPath: trimmed) }
-        return URL(string: trimmed)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return nil }
+        guard allowedSchemes.contains(scheme) else { return nil }
+        // A scheme on its own is not a location: "https:" parses cleanly and opens nothing.
+        guard !(url.host ?? "").isEmpty || !url.path.isEmpty else { return nil }
+        return url
+    }
+
+    /// Whether a value may be saved: the same check restore applies, by construction rather than
+    /// by convention, which is what lets capture never produce a document the loader would reject.
+    static func isUsable(_ text: String) -> Bool {
+        url(for: text) != nil
     }
 }
 

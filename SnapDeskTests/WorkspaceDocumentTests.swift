@@ -149,6 +149,41 @@ final class WorkspaceDocumentTests: XCTestCase {
         }
     }
 
+    /// The other direction of `testFullscreenIsOptionalInBothDirections`, pinned rather than
+    /// remembered: a file this build writes, with both new fields set, decodes with the window
+    /// shape of the build before them — synthesised Codable ignores a key it does not know. The
+    /// shape is spelled out here so a later field is added to it, and the claim keeps being
+    /// tested rather than asserted.
+    func testAFileWrittenByThisBuildDecodesWithThePreFeatureWindowShape() throws {
+        struct LegacySavedWindow: Decodable {
+            var bundleIdentifier: String
+            var bundlePath: String
+            var name: String
+            var title: String
+            var displayId: String
+            var x: Double
+            var y: Double
+            var width: Double
+            var height: Double
+            var minimized: Bool
+            var zoomed: Bool
+            var arguments: String
+        }
+        struct LegacyDocument: Decodable {
+            var version: Int
+            var name: String
+            var windows: [LegacySavedWindow]
+        }
+        var document = try WorkspaceDocument.decode(Data(specJSON.utf8))
+        document.windows[0].fullscreen = true
+        document.windows[0].document = "https://example.com"
+
+        let legacy = try JSONDecoder().decode(LegacyDocument.self, from: document.encoded())
+
+        XCTAssertEqual(legacy.version, 1)
+        XCTAssertEqual(legacy.windows.map(\.title), document.windows.map(\.title))
+    }
+
     func testEncodedIsPrettyAndSortedKeys() throws {
         let doc = try WorkspaceDocument.decode(Data(specJSON.utf8))
         let encoded = try doc.encoded()

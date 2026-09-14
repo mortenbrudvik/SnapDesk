@@ -69,10 +69,36 @@ final class RecaptureTests: XCTestCase {
         XCTAssertTrue(Recapture.merge(old: old, new: []).isEmpty)
     }
 
+    /// A document the user typed by hand — Safari vends none, so the help tells them to — has to
+    /// survive a recapture the way arguments do, or the next Capture in the editor throws it away.
+    func testARecaptureKeepsTheOldDocumentWhenTheNewCaptureHasNone() {
+        let old = [
+            savedWindow(bundleIdentifier: safari, title: "GitHub", arguments: "", document: "https://github.com")
+        ]
+        let new = [
+            savedWindow(bundleIdentifier: safari, title: "GitHub", arguments: "")
+        ]
+        let merged = Recapture.merge(old: old, new: new)
+        XCTAssertEqual(merged.map(\.document), ["https://github.com"])
+    }
+
+    /// But a document the app vends now is the current one, and wins.
+    func testARecaptureTakesTheDocumentTheAppVendsNow() {
+        let old = [
+            savedWindow(bundleIdentifier: chrome, title: "Docs", arguments: "", document: "https://example.com/old")
+        ]
+        let new = [
+            savedWindow(bundleIdentifier: chrome, title: "Docs", arguments: "", document: "https://example.com/new")
+        ]
+        let merged = Recapture.merge(old: old, new: new)
+        XCTAssertEqual(merged.map(\.document), ["https://example.com/new"])
+    }
+
     private func savedWindow(
         bundleIdentifier: String,
         title: String,
-        arguments: String
+        arguments: String,
+        document: String? = nil
     ) -> SavedWindow {
         SavedWindow(
             bundleIdentifier: bundleIdentifier,
@@ -86,6 +112,7 @@ final class RecaptureTests: XCTestCase {
             height: 100,
             minimized: false,
             zoomed: false,
+            document: document,
             arguments: arguments
         )
     }

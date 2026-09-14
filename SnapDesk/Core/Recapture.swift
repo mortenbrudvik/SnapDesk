@@ -12,7 +12,14 @@ enum Recapture {
             }) ?? unused.firstIndex(where: {
                 $0.bundleIdentifier == window.bundleIdentifier
             }) {
-                result.arguments = unused.remove(at: index).arguments
+                let previous = unused.remove(at: index)
+                result.arguments = previous.arguments
+                // A document the user typed by hand — Safari vends none, so the help tells them
+                // to — survives a recapture the way arguments do. One the app vends now is the
+                // current one, and wins.
+                if result.document == nil {
+                    result.document = previous.document
+                }
             }
             return result
         }

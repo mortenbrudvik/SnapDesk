@@ -107,8 +107,8 @@ enum HelpContent {
                     detail: """
                     Five more keys you can bind, each to a workspace of your choosing, so a desk \
                     comes back without opening a menu. They start unbound: pick the keys and the \
-                    workspace in Settings…. A key whose workspace has since been deleted says so \
-                    rather than doing nothing.
+                    workspace in Settings. A key whose workspace has since been deleted says so \
+                    rather than doing nothing, and one with no workspace yet just beeps.
                     """
                 ),
                 Entry(
@@ -136,11 +136,15 @@ enum HelpContent {
                     term: "Document or URL",
                     detail: """
                     The page or file the window had open. SnapDesk fills this in when the app tells \
-                    it — browsers, Terminal and TextEdit do; Safari and Finder do not — and \
-                    restoring opens it, which is what brings back a second and third window that \
-                    the app would not have reopened on its own. It also means restoring the same \
-                    workspace twice opens the same page twice: nothing checks whether the window \
-                    is already there. Clear the field to restore the window without it.
+                    it — Brave, Terminal and TextEdit do; Safari and Finder do not — and restoring \
+                    opens it. Whether that comes back as a window of its own is the app's choice: \
+                    TextEdit and Terminal open a window per document, Chromium-based browsers such \
+                    as Brave and Chrome are asked for a new window and give one, and Safari opens a \
+                    tab in its frontmost window, so its other saved windows report "No window". \
+                    Restoring the same workspace twice opens the same page twice: nothing checks \
+                    whether the window is already there. Clear the field to restore the window \
+                    without it; text the field cannot store is marked underneath, and the last \
+                    stored value stands until it is replaced or the field is cleared.
                     """
                 ),
                 Entry(
@@ -148,9 +152,10 @@ enum HelpContent {
                     detail: """
                     Not the same thing as Zoomed. Zoomed fills the screen; fullscreen hides the \
                     menu bar and gives the window a Space of its own. macOS decides which Space \
-                    that is, and SnapDesk cannot ask for a particular one. Some windows have no \
-                    fullscreen state at all — a fixed-size one refuses it — and those come back \
-                    on their saved frame instead.
+                    that is, and SnapDesk cannot ask for a particular one. Some windows refuse it \
+                    — Activity Monitor, System Settings, any fixed-size window — and those come \
+                    back on their saved frame instead. A minimized window cannot also be \
+                    fullscreen, so turning one on turns the other off.
                     """
                 ),
                 Entry(term: "Remove", detail: "Drops a window from the workspace. The real window is untouched."),
@@ -161,7 +166,8 @@ enum HelpContent {
                     Choose Folder… and it lists every workspace in that folder as well, so you can \
                     see all of them rather than only the recent ones. Selecting a row opens it for \
                     editing; Launch on the row restores it. Most recently restored comes first, \
-                    and the rest follow by name.
+                    and the rest follow by file name. A folder that cannot be read right now — \
+                    a drive that is unplugged, say — is said so under the list, and stays chosen.
                     """
                 ),
                 Entry(
@@ -250,17 +256,18 @@ enum HelpContent {
                 Entry(
                     term: SlotFailure.documentFailed.displayText,
                     detail: """
-                    The app opened, but the page or file the window had is no longer there — a file \
-                    that has moved or been renamed, or an address the app would not take. The app \
-                    itself is fine; clear the Document field on that row to restore the window \
-                    without it.
+                    The page or file the window had is no longer there — a file that has moved or \
+                    been renamed, or an address the app would not take. The app itself is usually \
+                    fine; clear the Document field on that row to restore the window without it. \
+                    If the app did not open at all, the log says so.
                     """
                 ),
                 Entry(
                     term: SlotFailure.launchTimedOut.displayText,
                     detail: """
-                    The app took more than ten seconds to open, so SnapDesk stopped waiting rather \
-                    than hold up the rest of the restore. Try again once it has started.
+                    The app, or the document it was asked to open, took more than ten seconds, so \
+                    SnapDesk stopped waiting rather than hold up the rest of the restore. Try again \
+                    once the app has started.
                     """
                 ),
                 Entry(
@@ -312,8 +319,9 @@ enum HelpContent {
                 Entry(
                     term: SlotFailure.stateNotRestored.displayText,
                     detail: """
-                    The window is on its saved frame, but would not take the zoom or minimize you \
-                    saved. Windows with no zoom button report this.
+                    The window is on its saved frame, but would not take the zoom, fullscreen or \
+                    minimize you saved. Windows with no zoom button report this, and so do windows \
+                    that refuse fullscreen — Activity Monitor and System Settings among them.
                     """
                 ),
                 Entry(

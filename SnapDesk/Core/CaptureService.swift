@@ -257,9 +257,19 @@ struct CaptureService {
                 // Filtered rather than passed through: the attribute is not a URL field, and a
                 // capture must never produce a document the loader would then refuse. That
                 // invariant is pinned by `testCaptureNeverRecordsAWindowValidationWouldReject`.
-                // An unusable value costs the document, never the window.
-                document: item.window.document.flatMap {
-                    WorkspaceDocumentReference.isUsable($0) ? $0 : nil
+                // An unusable value costs the document, never the window — and is logged rather
+                // than reported: a title that landed in the attribute is the ordinary case for
+                // several apps, and an alert for each would be noise, while "why is this field
+                // empty" still has an answer. Stored trimmed, because the check trims.
+                document: item.window.document.flatMap { vended in
+                    let trimmed = vended.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard WorkspaceDocumentReference.isUsable(trimmed) else {
+                        Log.capture.info(
+                            "dropping the document of a \(item.app.name, privacy: .public) window: not a location"
+                        )
+                        return nil
+                    }
+                    return trimmed
                 },
                 arguments: ""
             )

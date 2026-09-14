@@ -30,10 +30,11 @@ enum SlotFailure: Equatable, Sendable, CaseIterable {
     /// take. Reported apart from `couldNotPosition` because the user would otherwise go looking
     /// for a window that is exactly where they saved it.
     case stateNotRestored
-    /// The slot named a document and the app would not open it: a file that has moved, or a URL
-    /// the app refused. Reported apart from `.launchFailed` because the app itself is fine — and
-    /// apart from `.noWindow`, which is what this used to look like after the whole window budget
-    /// had been spent waiting for a window the open never created.
+    /// The slot named a document and the open was refused: a file that has moved, a URL the app
+    /// would not take — or, less often, the app itself failing to launch, which the one call
+    /// cannot tell apart. Reported apart from `.launchFailed` because the document is usually the
+    /// cause, and apart from `.noWindow`, which is what this would otherwise look like after the
+    /// whole window budget had been spent waiting for a window the open never created.
     case documentFailed
 
     var displayText: String {
@@ -59,7 +60,7 @@ enum SlotFailure: Equatable, Sendable, CaseIterable {
         case .documentFailed:
             return "Could not open document"
         case .stateNotRestored:
-            return "Zoom or minimize failed"
+            return "Zoom, fullscreen or minimize failed"
         }
     }
 }
@@ -324,7 +325,7 @@ final class LaunchService {
 
     init(
         launcher: any ApplicationLaunching,
-        documentOpener: any DocumentOpening = NSWorkspaceDocumentOpener(),
+        documentOpener: any DocumentOpening,
         apps: any RunningApplicationQuerying,
         windows: any WindowCatalog,
         placer: any WindowPlacing,
@@ -434,29 +435,15 @@ final class LaunchService {
                 onProgress(progress)
                 return progress
             }
-            let arguments: [String]
-            let newInstance: Bool
-            /// Nil for a plain launch; the document to open otherwise. The two paths share
-            /// everything below except the one call in the middle.
-            let document: URL?
-            switch action {
-            case .reuse:
-                continue
-            case .launch(let slotArguments, let fresh):
-                arguments = slotArguments
-                newInstance = fresh
-                document = nil
-            case .openDocument(let url, let slotArguments, let fresh):
-                arguments = slotArguments
-                newInstance = fresh
-                document = url
-            }
+            // A plain launch and a document open share everything below except the one call in
+            // the middle; `openRequest` is that shape.
+            guard let request = action.openRequest else { continue }
 
             progress[index].status = .launching
             onProgress(progress)
 
             let bundle = slots[index].bundleIdentifier
-            if newInstance, preExistingPIDs[bundle] == nil {
+            if request.newInstance, preExistingPIDs[bundle] == nil {
                 preExistingPIDs[bundle] = apps.runningPIDs(bundleIdentifier: bundle)
             }
 
@@ -465,13 +452,13 @@ final class LaunchService {
                 continue
             }
             let configuration = LaunchConfiguration(
-                arguments: arguments,
-                createsNewApplicationInstance: newInstance,
+                arguments: request.arguments,
+                createsNewApplicationInstance: request.newInstance,
                 activates: false
             )
             do {
-                if let document {
-                    try await openDocument(document, withApplicationAt: url, configuration: configuration)
+                if let slotDocument = request.document {
+                    try await openDocument(slotDocument, withApplicationAt: url, configuration: configuration)
                 } else {
                     try await open(at: url, configuration: configuration)
                 }
@@ -489,18 +476,20 @@ final class LaunchService {
                 let timedOut = error is LaunchTimeoutError
                 Log.launch.error(
                     """
-                    slot \(index) could not open \(document?.lastPathComponent ?? url.lastPathComponent, privacy: .public): \
+                    slot \(index) could not open \(request.document?.absoluteString ?? url.lastPathComponent, privacy: .public): \
                     \(String(describing: error), privacy: .public)
                     """
                 )
-                // A refused document is its own failure. The app is fine, so `.launchFailed` would
-                // send the user looking in the wrong place — and a timeout is still a timeout
-                // whichever call was waiting.
+                // A refused document is its own failure: the app is usually fine, so `.launchFailed`
+                // would send the user looking in the wrong place — and a timeout is still a
+                // timeout whichever call was waiting.
                 let reason: SlotFailure
                 if timedOut {
                     reason = .launchTimedOut
+                } else if request.document == nil {
+                    reason = .launchFailed
                 } else {
-                    reason = document == nil ? .launchFailed : .documentFailed
+                    reason = .documentFailed
                 }
                 fail(&progress, index: index, reason: reason, onProgress: onProgress)
             }
@@ -888,9 +877,10 @@ final class LaunchService {
     }
 
     /// Runs `operation` against `launchTimeout`, abandoning it at the deadline rather than merely
-    /// reporting one: neither `NSWorkspace.openApplication` nor `NSWorkspace.open` observes
-    /// cancellation, so the task is raced against a timer and whichever settles first tears the
-    /// other down. `inFlightOpen` is what lets a Cancel wake the wait; see `cancel()`.
+    /// reporting one: `NSWorkspace.openApplication` does not observe cancellation (measured, the
+    /// 90s hang on `open(at:)`), and `NSWorkspace.open` is assumed to behave the same, sharing the
+    /// LaunchServices path — so the task is raced against a timer and whichever settles first
+    /// tears the other down. `inFlightOpen` is what lets a Cancel wake the wait; see `cancel()`.
     private func bounded(_ operation: @escaping @MainActor () async throws -> Void) async throws {
         let timeout = launchTimeout
         let outcome = FirstOutcome()
@@ -1290,6 +1280,17 @@ enum WindowPlacement {
                 )
                 return .refused
             }
+        } else if fullscreen == false, ax.fullscreenState == nil {
+            // Never answered. The frame write below is the only step that can still report on
+            // this window, so it gets its turn — as it does after an unanswered un-minimize — but
+            // a fullscreen window swallows that write while answering `.success`, so the silence
+            // is worth a line if the placement then lands nowhere.
+            Log.ax.notice(
+                """
+                a window of \(id, privacy: .public) never said whether it was fullscreen; \
+                writing its frame anyway
+                """
+            )
         }
 
         // Un-zooming first is only a head start for the frame write, so a refusal must not abort
@@ -1303,7 +1304,12 @@ enum WindowPlacement {
         // read would zoom a window that was not zoomed — worse than skipping a precondition whose
         // only job is to help the frame write that follows (and which, on a window whose frame
         // cannot be read, fails on its own and reports the placement as failed).
-        if ax.isZoomed {
+        //
+        // And never on a fullscreen window: the green button *leaves* fullscreen, so a window a
+        // pre-fullscreen workspace says nothing about (nil) would be dragged out of it by the back
+        // door if its frame happened to read as zoomed. A confirmed `false` has already been
+        // handled above, by the precondition.
+        if ax.isZoomed, ax.fullscreenState != true {
             _ = succeeded(ax.setZoomed(false), bundleIdentifier: id, step: "un-zoom")
         }
 
@@ -1319,7 +1325,10 @@ enum WindowPlacement {
         if zoomed {
             restoredState = await ensureZoomed(ax, id: id, clock: clock) && restoredState
         }
-        if fullscreen == true {
+        // A fullscreen window cannot be minimized, so a slot saved as both — a state capture never
+        // produces, and the editor's toggles no longer allow — is restored minimized: the state it
+        // can actually reach, rather than a fullscreen the minimize would then fail against.
+        if fullscreen == true, !minimized {
             restoredState = await ensureFullScreen(ax, wanted: true, id: id, clock: clock) && restoredState
         }
         if minimized {
@@ -1395,12 +1404,21 @@ enum WindowPlacement {
         if await settled(clock: clock, timeout: fullScreenTimeout, until: { ax.fullscreenState == wanted }) {
             return true
         }
-        Log.ax.error(
-            """
-            a window of \(id, privacy: .public) did not \(direction, privacy: .public) fullscreen; \
-            the write was accepted and the window stayed where it was
-            """
-        )
+        if ax.fullscreenState == nil {
+            Log.ax.error(
+                """
+                a window of \(id, privacy: .public) never said whether it did \(direction, privacy: .public) \
+                fullscreen; the write was accepted and the state could not be read back
+                """
+            )
+        } else {
+            Log.ax.error(
+                """
+                a window of \(id, privacy: .public) did not \(direction, privacy: .public) fullscreen; \
+                the write was accepted and the window stayed where it was
+                """
+            )
+        }
         return false
     }
 

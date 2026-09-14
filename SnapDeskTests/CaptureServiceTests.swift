@@ -340,6 +340,25 @@ final class CaptureServiceTests: XCTestCase {
         XCTAssertEqual(doc.windows.map(\.document), ["https://example.com/a", nil])
     }
 
+    /// Stored trimmed, because the check that admits it trims: a value saved with its whitespace
+    /// would be rewritten by the editor's field on first sight and dirty a file nobody edited.
+    func testACapturedDocumentIsStoredTrimmed() {
+        let padded = snapshot(
+            cgWindowID: 10,
+            title: "Docs",
+            cocoaFrame: CGRect(x: 100, y: 138, width: 800, height: 600),
+            document: "  https://example.com/a \n"
+        )
+        let service = CaptureService(
+            apps: FakeApps(running: [safari]),
+            ax: FakeAX(windowsByPid: [safari.pid: [padded]]),
+            order: FakeOrder(ids: [10]),
+            displays: FakeDisplays(live: [display])
+        )
+
+        XCTAssertEqual(service.capture().document.windows.map(\.document), ["https://example.com/a"])
+    }
+
     // MARK: What could not be read
 
     /// The failure this whole report exists for: an app that is busy when the hotkey fires does
